@@ -9,6 +9,10 @@ dependencies = [
     "pydantic>=2.6",
     "pyyaml>=6.0",
     "python-dotenv>=1.0",
+    # Voice (Phase 3). Apache-2.0 / MIT.
+    "google-cloud-speech>=2.33",
+    "google-cloud-texttospeech>=2.29",
+    "sounddevice>=0.5",
 ]
 
 [project.optional-dependencies]

@@ -1,6 +1,6 @@
 # Test fixture: a frozen copy of the starting policy (age 6, 19:30 bedtime), so
 # unit tests do not break when a parent edits policies/default.yaml.
-schema_version: 1
+schema_version: 2
 policy_version: 1
 household_age: 6
 
@@ -114,3 +114,4 @@ canned_replies:
   daily_limit_reached: We've asked lots of questions today! Pip is resting now. Let's talk again tomorrow.
   blocked_topic: That's not something I can talk about. Want to ask me about animals or space instead?
   something_went_wrong: Oops, my thinking got tangled. Can you ask me again?
+  didnt_catch_that: I didn't quite hear that. Can you hold the button and say it again?

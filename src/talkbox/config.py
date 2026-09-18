@@ -16,6 +16,7 @@ class Settings:
     logging_enabled: bool
     max_history_exchanges: int
     guardrails: GuardrailSettings
+    speech: SpeechSettings | None = None  # None when talkbox.toml has no [speech]
 
 
 @dataclass(frozen=True)
@@ -31,6 +32,30 @@ class GuardrailSettings:
     length_tolerance: float  # fraction over the policy's length limits still accepted
     classifier: CheckSettings
     output_check: CheckSettings
+
+
+@dataclass(frozen=True)
+class SpeechSettings:
+    stt_name: str
+    stt_settings: dict    # passed to the speech-to-text class
+    tts_name: str
+    tts_settings: dict    # passed to the text-to-speech class
+    voice: dict           # [voice]: push-to-talk and turn settings
+
+
+def _speech(data: dict) -> SpeechSettings | None:
+    if "speech" not in data:
+        return None
+    sp = data["speech"]
+    language = sp.get("language", "en-US")
+    stt, tts = sp["stt"], sp["tts"]
+    return SpeechSettings(
+        stt_name=stt["name"],
+        stt_settings={"language": language, **stt.get(stt["name"], {})},
+        tts_name=tts["name"],
+        tts_settings={"language": language, **tts.get(tts["name"], {})},
+        voice=dict(data.get("voice", {})),
+    )
 
 
 def _check(data: dict) -> CheckSettings:
@@ -61,4 +86,5 @@ def load_settings(path: str | Path = "talkbox.toml") -> Settings:
             classifier=_check(g["classifier"]),
             output_check=_check(g["output_check"]),
         ),
+        speech=_speech(data),
     )

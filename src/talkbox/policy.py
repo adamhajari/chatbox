@@ -128,10 +128,12 @@ class CannedReplies(_Strict):
     daily_limit_reached: str = Field(min_length=1)
     blocked_topic: str = Field(min_length=1)
     something_went_wrong: str = Field(min_length=1)
+    # Voice only: spoken when the recording was silent or no words were recognized.
+    didnt_catch_that: str = Field(min_length=1)
 
 
 class Policy(_Strict):
-    schema_version: Literal[1] = 1
+    schema_version: Literal[2] = 2
     policy_version: int = Field(ge=1, description="Bump on every edit; logged with each exchange.")
     household_age: int = Field(ge=2, le=17)
     persona: Persona

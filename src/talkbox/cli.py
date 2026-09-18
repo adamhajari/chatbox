@@ -58,11 +58,81 @@ def cmd_chat(args, settings) -> None:
             answer = pipeline.ask(question)
             print(f"{name}> {answer.text}")
             if args.verbose:
-                for s in answer.steps:
-                    ms = "" if s.get("ms") is None else f" [{s['ms']} ms]"
-                    print(f"   · {s['step']}: {s['decision']}{ms} {s['detail']}".rstrip())
-                print(f"   · total: {answer.latency_ms} ms")
+                _print_steps(answer.steps, answer.latency_ms)
             print()
+    except KeyboardInterrupt:
+        print()
+    finally:
+        counter.close()
+        if log:
+            log.close()
+
+
+def _print_steps(steps: list[dict], total_ms: int | None = None) -> None:
+    for s in steps:
+        ms = "" if s.get("ms") is None else f" [{s['ms']} ms]"
+        print(f"   · {s['step']}: {s['decision']}{ms} {s['detail']}".rstrip())
+    if total_ms is not None:
+        print(f"   · total: {total_ms} ms")
+
+
+def cmd_talk(args, settings) -> None:
+    from dataclasses import fields
+
+    from talkbox.audio.laptop import Keyboard, LaptopPushToTalk, LaptopSpeaker, PushToTalkSettings
+    from talkbox.pipeline import build_pipeline
+    from talkbox.speech import make_stt, make_tts
+    from talkbox.voice import VoiceSettings, VoiceTurn
+
+    if not sys.stdin.isatty():
+        sys.exit("talkbox talk needs an interactive terminal (it listens for the spacebar)")
+    if settings.speech is None:
+        sys.exit("talkbox.toml has no [speech] section (see README: voice setup)")
+    sp = settings.speech
+    policy = _load_policy_or_exit(args.policy or settings.policy_path)
+    db = args.db or settings.database_path
+    counter = DailyCounter(db)
+    log = ExchangeLog(db) if settings.logging_enabled else None
+    pipeline = build_pipeline(policy, settings, counter, log)
+
+    def pick(cls):
+        names = {f.name for f in fields(cls)}
+        return cls(**{k: v for k, v in sp.voice.items() if k in names})
+
+    ptt_settings, voice_settings = pick(PushToTalkSettings), pick(VoiceSettings)
+    stt, tts = make_stt(sp.stt_name, sp.stt_settings), make_tts(sp.tts_name, sp.tts_settings)
+    speaker = LaptopSpeaker(ptt_settings.output_device, tts.sample_rate)
+    turn = VoiceTurn(pipeline, stt, tts, speaker, voice_settings)
+    g = settings.guardrails
+    print(f"Talkbox ({policy.persona.name}) · policy {policy.version_label()} · "
+          f"{pipeline.provider.name}/{pipeline.provider.model}")
+    print(f"Speech: {stt.name}/{stt.model} → text → {tts.name}/{tts.voice}. "
+          f"Output check {'on' if g.output_check.enabled else 'OFF'}. "
+          f"Logging is {'on' if log else 'off'}; no audio is stored.")
+    print("Hold SPACE and talk; let go to send. 'n' starts a fresh session, 'q' quits.\n")
+    try:
+        with Keyboard() as kb:
+            mic = LaptopPushToTalk(kb, speaker, ptt_settings)
+            while True:
+                command = kb.wait_command()
+                if command == "quit":
+                    break
+                if command == "new":
+                    pipeline.history.clear()
+                    print("(new session)\n")
+                    continue
+                print("listening…", end="", flush=True)
+                result = turn.run(mic.record(), ptt_settings.sample_rate)
+                print("\r", end="")
+                if result.transcript is None and result.spoken is None:
+                    print("(tap too short; hold the spacebar while talking)")
+                else:
+                    print(f"kid> {result.transcript or '(nothing recognized)'}")
+                    print(f"{policy.persona.name}> {result.spoken}")
+                if args.verbose:
+                    _print_steps(result.steps)
+                print()
+                kb.flush()
     except KeyboardInterrupt:
         print()
     finally:
@@ -104,6 +174,9 @@ def main(argv: list[str] | None = None) -> None:
     chat = sub.add_parser("chat", help="type questions as a kid would")
     chat.add_argument("-v", "--verbose", action="store_true", help="show pipeline decisions")
     chat.set_defaults(func=cmd_chat)
+    talk = sub.add_parser("talk", help="hold the spacebar and ask out loud")
+    talk.add_argument("-v", "--verbose", action="store_true", help="show pipeline decisions")
+    talk.set_defaults(func=cmd_talk)
     sub.add_parser("check-policy", help="validate the policy file").set_defaults(func=cmd_check_policy)
     sub.add_parser("show-prompt", help="print the compiled system prompt").set_defaults(func=cmd_show_prompt)
     logp = sub.add_parser("log", help="show recent exchanges")

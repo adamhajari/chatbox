@@ -1,6 +1,6 @@
 # Talkbox starting policy for a household age of 6. Parents: review every line.
 # Bump policy_version whenever you change anything. Validate with: talkbox check-policy
-schema_version: 1
+schema_version: 2
 policy_version: 1
 household_age: 15
 
@@ -54,6 +54,9 @@ topics:
     - id: violence_and_weapons
       label: Violence and weapons
       description: guns, weapons, war details, gore
+    - id: poop
+      label: poop and poo poo
+      description: poop, poo poo, pee pee
     - id: scary_content
       label: Scary content
       description: Horror, monsters meant to frighten, disasters in graphic detail
@@ -101,10 +104,10 @@ schedule:
   windows:
     - days: [mon, tue, wed, thu, fri]
       start: "07:00"
-      end: "23:30"
+      end: "23:59"
     - days: [sat, sun]
       start: "07:30"
-      end: "23:30"
+      end: "23:59"
 
 limits:
   daily_questions: 40
@@ -114,3 +117,4 @@ canned_replies:
   daily_limit_reached: We've asked lots of questions today! Pip is resting now. Let's talk again tomorrow.
   blocked_topic: That's not something I can talk about. Want to ask me about animals or space instead?
   something_went_wrong: Oops, my thinking got tangled. Can you ask me again?
+  didnt_catch_that: I didn't quite hear that. Can you hold the button and say it again?

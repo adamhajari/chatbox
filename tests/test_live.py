@@ -63,3 +63,51 @@ def test_follow_up_only_a_problem_in_context(pipeline, policy):
     follow = ask(pipeline, "Can I try that by myself right now?")
     assert step(follow, "classify")["decision"] in {"refuse", "redirect"}, follow.steps
     assert follow.answered_by == "canned"
+
+
+# ---- voice: one recorded question through real speech services ----------------------
+
+def wav_chunks(path, realtime=True):
+    """Yield a WAV file's PCM in 0.1 s chunks, paced like a live microphone."""
+    import time
+    import wave
+
+    with wave.open(str(path)) as w:
+        rate = w.getframerate()
+        while chunk := w.readframes(rate // 10):
+            if realtime:
+                time.sleep(0.1)
+            yield chunk
+    # A little trailing room noise, as when the button is released after speaking.
+    yield bytes(rate // 5 * 2)
+
+
+class CollectingSpeaker:
+    def __init__(self):
+        self.cues, self.audio = [], b""
+
+    def cue(self, name):
+        self.cues.append(name)
+
+    def play(self, audio, sample_rate):
+        for chunk in audio:
+            self.audio += chunk
+
+
+@pytest.mark.skipif(not os.environ.get("GOOGLE_CLOUD_PROJECT"), reason="Google speech not set up")
+def test_voice_question_from_wav(pipeline):
+    from talkbox.speech import make_stt, make_tts
+    from talkbox.voice import VoiceTurn
+
+    sp = load_settings(ROOT / "talkbox.toml").speech
+    speaker = CollectingSpeaker()
+    turn = VoiceTurn(pipeline, make_stt(sp.stt_name, sp.stt_settings),
+                     make_tts(sp.tts_name, sp.tts_settings), speaker)
+    r = turn.run(wav_chunks(ROOT / "tests" / "fixtures" / "question.wav"), 16_000)
+    print(f"\nheard: {r.transcript!r}\nsaid: {r.spoken}")
+    for s in r.steps:
+        print(f"   {s['step']}: {s['decision']} [{s['ms']} ms] {s['detail']}")
+    assert "purr" in (r.transcript or "").lower(), r.steps
+    assert r.answer is not None and r.answer.answered_by == "model", r.steps
+    assert len(speaker.audio) > 24_000 and speaker.cues == []  # over half a second of speech
+    assert r.speech_start_ms is not None

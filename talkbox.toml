@@ -52,3 +52,43 @@ model = "claude-haiku-4-5"
 max_tokens = 300
 timeout_seconds = 4
 max_retries = 1
+
+# Voice (talkbox talk). Pipeline B: speech-to-text -> the text pipeline above ->
+# text-to-speech. Credentials come from .env (GOOGLE_APPLICATION_CREDENTIALS,
+# GOOGLE_CLOUD_PROJECT). No audio is stored.
+[speech]
+language = "en-US"
+
+[speech.stt]
+name = "google"
+
+[speech.stt.google]
+# Model and region go together; see README "Speech settings" for measured trade-offs.
+model = "long"
+location = "global"
+
+[speech.tts]
+name = "google"
+
+[speech.tts.google]
+# Any Chirp 3 HD voice: https://cloud.google.com/text-to-speech/docs/chirp3-hd
+voice = "en-US-Chirp3-HD-Leda"
+sample_rate = 24000
+timeout_seconds = 10
+
+[voice]
+# Presses shorter than this are treated as accidental taps (a soft blip, nothing sent).
+min_press_seconds = 0.3
+# Recordings quieter than this (RMS of 16-bit samples) get the "didn't catch that" reply
+# without calling speech-to-text. Raise it in a noisy room.
+silence_rms = 200
+# Seconds to wait for the transcript after the spacebar is released.
+stt_timeout_seconds = 5
+max_seconds = 30
+sample_rate = 16000
+# Spacebar release detection (the terminal only sees key repeats; see README).
+key_repeat_wait_seconds = 0.6
+release_gap_seconds = 0.2
+# Audio devices by name or number (python -m sounddevice lists them); omit for defaults.
+# input_device = "MacBook Pro Microphone"
+# output_device = "MacBook Pro Speakers"
