@@ -1,3 +1,4 @@
+import time
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -5,18 +6,20 @@ from zoneinfo import ZoneInfo
 import pytest
 import yaml
 
+from talkbox.guardrails import Classification, OutputVerdict
 from talkbox.log import DailyCounter, ExchangeLog
 from talkbox.policy import Policy
 from talkbox.providers.base import ModelReply, ProviderError
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_POLICY = ROOT / "policies" / "default.yaml"
+TEST_POLICY = ROOT / "tests" / "fixtures" / "policy.yaml"
 LA = ZoneInfo("America/Los_Angeles")
 
 
 @pytest.fixture
 def policy_data() -> dict:
-    return yaml.safe_load(DEFAULT_POLICY.read_text())
+    return yaml.safe_load(TEST_POLICY.read_text())
 
 
 @pytest.fixture
@@ -51,14 +54,39 @@ class FakeProvider:
     name = "fake"
     model = "fake-model"
 
-    def __init__(self, text="The sky is blue because of sunlight.", refused=False, error=None):
+    def __init__(self, text="The sky is blue because of sunlight.", refused=False, error=None,
+                 structured=None, delay=0.0):
         self.text, self.refused, self.error = text, refused, error
+        self.structured, self.delay = structured, delay
         self.calls = []
+        self.structured_calls = []
 
     def generate(self, system, messages):
         self.calls.append((system, messages))
+        if self.delay:
+            time.sleep(self.delay)
         if self.error:
             raise ProviderError(self.error)
         return ModelReply(self.text, self.model, refused=self.refused,
                           stop_reason="refusal" if self.refused else "end_turn",
                           input_tokens=100, output_tokens=12)
+
+    def generate_structured(self, system, messages, schema):
+        self.structured_calls.append((system, messages, schema))
+        if self.delay:
+            time.sleep(self.delay)
+        if self.error:
+            raise ProviderError(self.error)
+        if isinstance(self.structured, Exception):
+            raise self.structured
+        return self.structured
+
+
+class AllowAll:
+    def classify(self, question, history, policy):
+        return Classification("allow", detail="test")
+
+
+class PassAll:
+    def check(self, question, answer, history, policy):
+        return OutputVerdict(True, "test")

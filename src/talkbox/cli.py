@@ -24,18 +24,20 @@ def _load_policy_or_exit(path: Path):
 
 
 def cmd_chat(args, settings) -> None:
-    from talkbox.pipeline import Pipeline
-    from talkbox.providers import make_provider
+    from talkbox.pipeline import build_pipeline
 
     policy = _load_policy_or_exit(args.policy or settings.policy_path)
-    provider = make_provider(settings.provider_name, settings.provider_settings)
     db = args.db or settings.database_path
     counter = DailyCounter(db)
     log = ExchangeLog(db) if settings.logging_enabled else None
-    pipeline = Pipeline(policy, provider, counter, log, settings.max_history_exchanges)
+    pipeline = build_pipeline(policy, settings, counter, log)
     name = policy.persona.name
+    g = settings.guardrails
 
-    print(f"Talkbox ({name}) · policy {policy.version_label()} · {provider.name}/{provider.model}")
+    print(f"Talkbox ({name}) · policy {policy.version_label()} · "
+          f"{pipeline.provider.name}/{pipeline.provider.model}")
+    print(f"Guardrails: classifier {g.classifier.provider_settings['model']}, "
+          f"output check {g.output_check.provider_settings['model'] if g.output_check.enabled else 'OFF'}")
     print(f"Logging is {'on' if log else 'off'}. Follow-ups remember this session only.")
     print("Type a question. 'new' starts a fresh session. Ctrl-D or 'quit' to exit.\n")
     try:
@@ -57,7 +59,9 @@ def cmd_chat(args, settings) -> None:
             print(f"{name}> {answer.text}")
             if args.verbose:
                 for s in answer.steps:
-                    print(f"   · {s['step']}: {s['decision']} {s['detail']}".rstrip())
+                    ms = "" if s.get("ms") is None else f" [{s['ms']} ms]"
+                    print(f"   · {s['step']}: {s['decision']}{ms} {s['detail']}".rstrip())
+                print(f"   · total: {answer.latency_ms} ms")
             print()
     except KeyboardInterrupt:
         print()

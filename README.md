@@ -1,8 +1,8 @@
 # Talkbox
 
 A kid-friendly assistant that answers questions within rules the parents set.
-This is **Phase 1: the text core**. You type a question as a kid would, and it prints
-the answer Talkbox would speak. See `PLAN.md` for the full plan.
+This is **Phase 2: the text core plus guardrails**. You type a question as a kid would, and
+it prints the answer Talkbox would speak. See `PLAN.md` for the full plan.
 
 ## Setup
 
@@ -20,7 +20,7 @@ cp .env.example .env        # then put your ANTHROPIC_API_KEY in .env
 
 ```bash
 talkbox chat                 # the chat loop; "new" starts a fresh session, Ctrl-D or "quit" exits
-talkbox chat -v              # also show each pipeline step's decision
+talkbox chat -v              # also show each step's decision, reason, and time (ms)
 talkbox --policy other.yaml chat   # use a different policy file
 talkbox check-policy         # validate the policy file
 talkbox show-prompt          # print the system prompt compiled from the policy
@@ -34,7 +34,7 @@ Global options (`--config`, `--policy`, `--db`) go before the subcommand.
 | File | What it is |
 |---|---|
 | `policies/default.yaml` | The parent policy (what it talks about, when, how). |
-| `talkbox.toml` | Runtime settings: provider, model, effort, session history, logging, file paths. |
+| `talkbox.toml` | Runtime settings: provider, answering model, guardrail check models, timeouts, session history, logging, file paths. |
 | `.env` | Secrets (`ANTHROPIC_API_KEY`). |
 | `data/talkbox.db` | SQLite: per-day question counts, plus the exchange log when logging is on. |
 
@@ -77,16 +77,63 @@ What you can set:
 ## How a question is handled
 
 ```
-question → limits (schedule, daily cap) → classify* → canned reply* → model → output check* → log
+question → limits → ┬ classify ──┐→ canned reply (redirect/refuse) ─────────→ answer
+                    └ model answer ┘→ (allow) output check → pass: model answer
+                                                          → fail: blocked-topic reply
 ```
 
-Steps marked `*` are Phase 2 guardrails. They are stubs that let everything through today,
-so for now blocked and redirect topics are enforced only by the system prompt.
-With logging on, every step's decision is stored in the log's `steps_json` column.
+The guardrail layers (numbers from PLAN.md section 4):
+
+| Layer | What it does | Where |
+|---|---|---|
+| 1. Policy prompt | The policy is compiled into the answering model's system prompt. | `prompt.py` |
+| 6. Limits | Schedule and daily cap, checked first. | `limits.py` |
+| 3. Input classification | A separate, fast model call sorts the question into `allow`, `redirect` (with the matching `redirect_to_parent` topic) or `refuse` (with the matching `blocked` topic). It sees the last few exchanges, so a follow-up like "can I try that by myself?" is judged in context. | `guardrails.py` |
+| 5. Canned replies | `redirect` gets that topic's parent-approved `reply`; `refuse` gets `canned_replies.blocked_topic`. | `guardrails.py` |
+| 4. Output check | Before an answer is returned, the whole answer is checked: length (in code, against `max_words` / `max_sentences` plus `length_tolerance`), then a second model call for topic, honesty about being a computer, blocked or parent-topic content, personal information, unsafe suggestions, and age fit. A failed answer is replaced with the blocked-topic reply. | `guardrails.py` |
+
+Both checks read the topics from the policy on every question, so editing the policy
+changes their behavior with no code change. Both use structured output (a JSON schema)
+through the provider interface.
+
+**Speed.** The classifier and the answer run at the same time; if the classifier says
+redirect or refuse, the answer is thrown away unused and the canned reply comes back
+right away. On `allow`, the output check runs after the answer is complete.
+Typical measured times with `claude-haiku-4-5` for all three: classify ~1.2 s, answer
+~1.3 s (in parallel), output check ~1.2 s, so ~2.8 s for an answered question and ~1.1 s
+for a redirect or refusal.
+
+**Fail closed.** If the classifier or the output check errors, times out, or returns
+something unusable (wrong format, a redirect naming a blocked topic, and so on), the
+kid hears `canned_replies.something_went_wrong`, never an unchecked answer.
+
+**Explainable.** Every step records its decision, a short reason, and its time in
+milliseconds. `talkbox chat -v` prints them; with logging on they're stored in
+`steps_json`. A redirect looks like:
+
+```
+   · classify: redirect [1055 ms] death_and_loss: The child is asking about a pet dying...
+   · canned: use [0 ms] death_and_loss
+   · generate: discarded classifier said redirect
+```
+
+### Guardrail settings (`talkbox.toml`)
+
+| Setting | Meaning |
+|---|---|
+| `[provider.anthropic] timeout_seconds` | Deadline for the answering model. |
+| `[guardrails] history_exchanges` | Recent question/answer pairs the checks see. |
+| `[guardrails] length_tolerance` | Fraction over the policy's length limits still accepted (0.25 = 25%). |
+| `[guardrails.output_check] enabled` | `false` turns layer 4 off entirely, length check included. Saves about 1 s per answered question, but answers are no longer checked before the kid hears them. `talkbox chat` shows "output check OFF" and each answer's steps show `output_check: skipped`. |
+| `[guardrails.classifier]` / `[guardrails.output_check]` | Each has `model`, `max_tokens`, `timeout_seconds` (hard deadline; past it the pipeline fails closed) and `max_retries`. They use the same provider as the answering model. |
 
 ## Tests
 
 ```bash
-pytest                 # unit tests; the model is mocked
-pytest -m live         # also exercises the real API (skipped without ANTHROPIC_API_KEY)
+pytest -m "not live"   # unit tests only; the model is mocked
+pytest                 # also runs the live smoke tests when ANTHROPIC_API_KEY is set
+pytest -m live -s      # just the live smoke tests, printing each step and its time
 ```
+
+Unit tests use a frozen copy of the policy (`tests/fixtures/policy.yaml`), so editing
+`policies/default.yaml` doesn't break them. The live tests use it too.

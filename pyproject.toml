@@ -1,7 +1,7 @@
 [project]
 name = "talkbox"
 version = "0.1.0"
-description = "A kid-friendly voice assistant with parent-set guardrails (Phase 1: text core)"
+description = "A kid-friendly voice assistant with parent-set guardrails (Phase 2: text core and guardrails)"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [

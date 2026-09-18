@@ -24,3 +24,31 @@ model = "claude-haiku-4-5"
 # Remove this line for claude-haiku-4-5, which doesn't accept it.
 # effort = "low"   # Opus/Sonnet only; Haiku rejects it
 max_tokens = 4000
+# Seconds before an answer request gives up (the kid then hears the error reply).
+timeout_seconds = 15
+
+# Guardrail layers 3 and 4 (see README). Each is a separate, fast model call with
+# structured output, on the same provider as the answering model. If a check errors,
+# times out, or returns something unusable, the kid gets a canned reply (fail closed).
+[guardrails]
+# How many recent question/answer pairs the checks see, so "why?" is judged in context.
+history_exchanges = 6
+# Answers up to this fraction over the policy's max_words / max_sentences still pass
+# (0.25 = 25%); longer ones are replaced with the blocked-topic reply.
+length_tolerance = 0.25
+
+[guardrails.classifier]
+model = "claude-haiku-4-5"
+max_tokens = 300
+# Hard deadline for the check, including retries.
+timeout_seconds = 4
+max_retries = 1
+
+[guardrails.output_check]
+# false skips layer 4 entirely (including the length check): answers come back ~1 s
+# sooner but are no longer checked before the kid hears them.
+enabled = false
+model = "claude-haiku-4-5"
+max_tokens = 300
+timeout_seconds = 4
+max_retries = 1

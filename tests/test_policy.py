@@ -7,7 +7,6 @@ from tests.conftest import DEFAULT_POLICY
 
 def test_default_policy_is_valid():
     p = load_policy(DEFAULT_POLICY)
-    assert p.household_age == 6
     assert p.topics.redirect_to_parent and all(t.reply for t in p.topics.redirect_to_parent)
 
 

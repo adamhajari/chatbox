@@ -4,7 +4,7 @@ another backend (e.g. Gemini on Vertex AI) means adding one class here."""
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal, Protocol
+from typing import Any, Literal, Protocol
 
 Role = Literal["user", "assistant"]
 
@@ -27,7 +27,7 @@ class ModelReply:
 
 
 class ProviderError(Exception):
-    """Any failure talking to the model (network, auth, rate limit, bad response)."""
+    """Any failure talking to the model (network, auth, rate limit, timeout, bad response)."""
 
 
 class ModelProvider(Protocol):
@@ -35,3 +35,10 @@ class ModelProvider(Protocol):
     model: str
 
     def generate(self, system: str, messages: list[ChatMessage]) -> ModelReply: ...
+
+    def generate_structured(
+        self, system: str, messages: list[ChatMessage], schema: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Return a JSON object matching `schema` (a plain JSON Schema). Raises
+        ProviderError on refusal, truncation, or output that isn't valid JSON."""
+        ...

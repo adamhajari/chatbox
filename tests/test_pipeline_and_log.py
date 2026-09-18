@@ -4,13 +4,15 @@ import pytest
 
 from talkbox.pipeline import Classification, OutputVerdict, Pipeline
 from talkbox.policy import Policy
-from tests.conftest import WED_NOON, FakeProvider, at
+from tests.conftest import WED_NOON, AllowAll, FakeProvider, PassAll, at
 
 
 @pytest.fixture
 def make(counter, log):
     def _make(policy, provider=None, when=WED_NOON, logging=True, **kw):
         provider = provider or FakeProvider()
+        kw.setdefault("classifier", AllowAll())
+        kw.setdefault("output_checker", PassAll())
         p = Pipeline(policy, provider, counter, log if logging else None, clock=lambda: when, **kw)
         return p, provider
     return _make
@@ -48,7 +50,7 @@ def test_outside_schedule_gets_canned_reply_and_no_model_call(policy, log, make)
     [r] = rows(log)
     assert r["model"] is None
     assert json.loads(r["steps_json"]) == [
-        {"step": "limits", "decision": "deny", "detail": "outside_schedule"}]
+        {"step": "limits", "decision": "deny", "detail": "outside_schedule", "ms": 0}]
 
 
 def test_daily_cap_enforced_and_denials_not_counted(policy_data, counter, make):
@@ -81,12 +83,12 @@ def test_provider_error_gets_canned_reply(policy, log, make):
 
 
 class RedirectDeath:
-    def classify(self, question, policy):
+    def classify(self, question, history, policy):
         return Classification("redirect", "death_and_loss", "test")
 
 
 class FailAll:
-    def check(self, question, answer, policy):
+    def check(self, question, answer, history, policy):
         return OutputVerdict(False, "test")
 
 
@@ -94,7 +96,7 @@ def test_classifier_extension_point_uses_parent_reply(policy, log, make):
     p, provider = make(policy, classifier=RedirectDeath())
     a = p.ask("Where did grandpa go?")
     expected = next(t.reply for t in policy.topics.redirect_to_parent if t.id == "death_and_loss")
-    assert a.text == expected and provider.calls == []
+    assert a.text == expected and a.answered_by == "canned"
 
 
 def test_output_check_extension_point(policy, log, make):
@@ -108,7 +110,8 @@ def test_log_and_counter_persist_to_file(policy, tmp_path):
     from talkbox.log import DailyCounter, ExchangeLog
     path = tmp_path / "sub" / "t.db"
     counter, log = DailyCounter(path), ExchangeLog(path)
-    Pipeline(policy, FakeProvider(), counter, log, clock=lambda: WED_NOON).ask("hi")
+    Pipeline(policy, FakeProvider(), counter, log, clock=lambda: WED_NOON,
+             classifier=AllowAll(), output_checker=PassAll()).ask("hi")
     counter.close(), log.close()
     again, counter = ExchangeLog(path), DailyCounter(path)
     assert len(again.recent()) == 1 and counter.get("2026-09-16") == 1

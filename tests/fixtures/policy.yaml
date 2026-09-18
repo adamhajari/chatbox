@@ -1,8 +1,8 @@
-# Talkbox starting policy for a household age of 6. Parents: review every line.
-# Bump policy_version whenever you change anything. Validate with: talkbox check-policy
+# Test fixture: a frozen copy of the starting policy (age 6, 19:30 bedtime), so
+# unit tests do not break when a parent edits policies/default.yaml.
 schema_version: 1
 policy_version: 1
-household_age: 15
+household_age: 6
 
 persona:
   name: Pip
@@ -101,10 +101,10 @@ schedule:
   windows:
     - days: [mon, tue, wed, thu, fri]
       start: "07:00"
-      end: "23:30"
+      end: "19:30"
     - days: [sat, sun]
       start: "07:30"
-      end: "23:30"
+      end: "19:30"
 
 limits:
   daily_questions: 40
