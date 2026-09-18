@@ -1,0 +1,29 @@
+[project]
+name = "talkbox"
+version = "0.1.0"
+description = "A kid-friendly voice assistant with parent-set guardrails (Phase 1: text core)"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "anthropic>=0.70",
+    "pydantic>=2.6",
+    "pyyaml>=6.0",
+    "python-dotenv>=1.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[project.scripts]
+talkbox = "talkbox.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/talkbox"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["live: calls the real model API (skipped without ANTHROPIC_API_KEY)"]

@@ -1,0 +1,26 @@
+# Runtime settings (not the parent policy). Paths are relative to this file.
+
+[paths]
+policy = "policies/default.yaml"
+database = "data/talkbox.db"
+
+[chat]
+# Follow-ups within one chat session keep context; this caps how many past
+# question/answer pairs are sent along (older ones are dropped).
+max_history_exchanges = 20
+
+[logging]
+# Off for now (PLAN.md D8). When off, only a per-day question count is stored
+# (for the daily cap); no question or answer text is saved.
+enabled = false
+
+[provider]
+name = "anthropic"
+
+[provider.anthropic]
+# model = "claude-opus-5"
+model = "claude-haiku-4-5"
+# Lower effort = faster, shorter answers. One of: low, medium, high, xhigh, max.
+# Remove this line for claude-haiku-4-5, which doesn't accept it.
+# effort = "low"   # Opus/Sonnet only; Haiku rejects it
+max_tokens = 4000
