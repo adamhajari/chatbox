@@ -401,3 +401,35 @@ def test_google_tts_reads_stream_ahead_of_slow_playback():
     assert next(chunks) == b"1"   # the speaker is still "playing" the first chunk...
     assert finished.wait(1.0)     # ...but the stream has already been read to the end
     assert list(chunks) == [b"2", b"3"]
+
+
+# ---- running where there is no sound card (Phase 6: a fresh Pi) --------------------
+
+def _problem(monkeypatch, query):
+    import sounddevice as sd
+
+    from talkbox.audio import audio_device_problem
+
+    monkeypatch.setattr(sd, "query_devices", query)
+    return audio_device_problem()
+
+
+def test_no_microphone_is_reported_plainly(monkeypatch):
+    devices = [{"max_input_channels": 0, "max_output_channels": 2}]
+    problem = _problem(monkeypatch, lambda: devices)
+    assert problem is not None and "microphone" in problem
+
+
+def test_no_sound_card_at_all_is_reported_plainly(monkeypatch):
+    import sounddevice as sd
+
+    def boom():
+        raise sd.PortAudioError("Error querying device -1")
+
+    problem = _problem(monkeypatch, boom)
+    assert problem is not None and "no sound devices" in problem
+
+
+def test_working_devices_report_no_problem(monkeypatch):
+    devices = [{"max_input_channels": 1, "max_output_channels": 2}]
+    assert _problem(monkeypatch, lambda: devices) is None

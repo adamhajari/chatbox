@@ -109,6 +109,7 @@ def _print_steps(steps: list[dict], total_ms: int | None = None) -> None:
 def cmd_talk(args, settings) -> None:
     from dataclasses import fields
 
+    from talkbox.audio import audio_device_problem
     from talkbox.audio.laptop import Keyboard, LaptopPushToTalk, LaptopSpeaker, PushToTalkSettings
     from talkbox.pipeline import build_pipeline
     from talkbox.speech import make_stt, make_tts
@@ -116,6 +117,10 @@ def cmd_talk(args, settings) -> None:
 
     if not sys.stdin.isatty():
         sys.exit("talkbox talk needs an interactive terminal (it listens for the spacebar)")
+    problem = audio_device_problem()
+    if problem:
+        sys.exit(f"talkbox talk needs a microphone and a speaker, but {problem}\n"
+                 "`talkbox chat` works without them.")
     if settings.speech is None:
         sys.exit("talkbox.toml has no [speech] section (see README: voice setup)")
     sp = settings.speech
