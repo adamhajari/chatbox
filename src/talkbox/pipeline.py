@@ -1,6 +1,6 @@
 """The answer pipeline:
 
-    question -> limits (layer 6) -> classify input (layer 3) -> canned reply (layer 5)
+    question -> pause -> limits (layer 6) -> classify input (layer 3) -> canned reply (layer 5)
              -> model answer (layers 1-2) -> check output (layer 4) -> log (layer 7, optional)
 
 The classifier and the model answer run concurrently to save time; the answer is
@@ -12,6 +12,9 @@ unusable data, the child gets a canned reply, never an unchecked answer.
 
 A Pipeline is one chat session: follow-up questions see the earlier exchanges.
 Nothing carries over between sessions (yet; see PLAN.md D9).
+
+The policy comes from a PolicyStore, so a save from the parent web UI applies from the
+next question (D20). Each question uses the snapshot taken when it started.
 """
 
 from __future__ import annotations
@@ -31,9 +34,9 @@ from talkbox.guardrails import (
     canned_reply_for,
 )
 from talkbox.limits import check_limits, local_now
-from talkbox.log import DailyCounter, ExchangeLog, ExchangeRecord
+from talkbox.log import Controls, DailyCounter, ExchangeLog, ExchangeRecord
 from talkbox.policy import Policy
-from talkbox.prompt import compile_system_prompt
+from talkbox.policy_store import PolicySnapshot, PolicyStore
 from talkbox.providers.base import ChatMessage, ModelProvider, ModelReply
 
 __all__ = ["Answer", "Classification", "OutputVerdict", "Pipeline", "canned_reply_for"]
@@ -74,6 +77,10 @@ def _err(e: BaseException) -> str:
     return f"{type(e).__name__}: {e}"
 
 
+# What every question gets while a parent has paused Talkbox from the settings page.
+PAUSED_REPLY = "I'm currently resting. Let's talk later."
+
+
 # ---- Pipeline -----------------------------------------------------------------
 
 @dataclass
@@ -88,7 +95,7 @@ class Answer:
 class Pipeline:
     def __init__(
         self,
-        policy: Policy,
+        policy: Policy | PolicyStore,
         provider: ModelProvider,
         counter: DailyCounter,
         log: ExchangeLog | None = None,
@@ -100,8 +107,10 @@ class Pipeline:
         check_timeout_s: float | None = 4.0,
         generate_timeout_s: float | None = None,
         clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
+        controls: Controls | None = None,  # None = no pause switch
     ) -> None:
-        self.policy = policy
+        self.controls = controls
+        self.store = policy if isinstance(policy, PolicyStore) else PolicyStore(policy)
         self.provider = provider
         self.counter = counter
         self.classifier = classifier
@@ -113,18 +122,27 @@ class Pipeline:
         self.generate_timeout_s = generate_timeout_s
         self.history: list[ChatMessage] = []  # alternating user/assistant, this session only
         self.clock = clock
-        self.system_prompt = compile_system_prompt(policy)
+
+    @property
+    def policy(self) -> Policy:
+        """The policy the next question will use."""
+        return self.store.policy
+
+    @property
+    def system_prompt(self) -> str:
+        return self.store.snapshot().system_prompt
 
     def ask(self, question: str) -> Answer:
         started = time.monotonic()
+        snap = self.store.snapshot()  # this question keeps it, even if a save lands mid-way
         now = self.clock()
-        local_date = local_now(self.policy, now).date().isoformat()
+        local_date = local_now(snap.policy, now).date().isoformat()
         steps: list[dict] = []
 
         def step(name: str, decision: str, detail: str = "", ms: int | None = None) -> None:
             steps.append({"step": name, "decision": decision, "detail": detail, "ms": ms})
 
-        answer_text, answered_by, model_reply = self._run(question, now, local_date, step)
+        answer_text, answered_by, model_reply = self._run(snap, question, now, local_date, step)
         latency_ms = round((time.monotonic() - started) * 1000)
 
         # Questions turned away by the limits don't count and don't join the conversation.
@@ -140,7 +158,7 @@ class Pipeline:
             question=question,
             answer=answer_text,
             answered_by=answered_by,
-            policy_version=self.policy.version_label(),
+            policy_version=snap.policy.version_label(),
             provider=self.provider.name if model_reply else None,
             model=model_reply.model if model_reply else None,
             latency_ms=latency_ms,
@@ -157,10 +175,16 @@ class Pipeline:
         del self.history[: max(0, len(self.history) - 2 * self.max_history_exchanges)]
 
     def _run(
-        self, question: str, now: datetime, local_date: str, step: Callable[..., None]
+        self, snap: PolicySnapshot, question: str, now: datetime, local_date: str,
+        step: Callable[..., None],
     ) -> tuple[str, Literal["model", "canned"], ModelReply | None]:
-        policy = self.policy
+        policy = snap.policy
         went_wrong = policy.canned_replies.something_went_wrong
+
+        # A parent's pause beats everything; paused questions don't count toward the cap.
+        if self.controls is not None and self.controls.paused:
+            step("pause", "deny", "paused from the settings page", 0)
+            return PAUSED_REPLY, "canned", None
 
         # Layer 6: schedule and daily cap.
         used = self.counter.get(local_date)
@@ -175,7 +199,7 @@ class Pipeline:
         messages = [*history, ChatMessage("user", question)]
         started = time.monotonic()
         classify_f = _POOL.submit(_timed, self.classifier.classify, question, history, policy)
-        generate_f = _POOL.submit(_timed, self.provider.generate, self.system_prompt, messages)
+        generate_f = _POOL.submit(_timed, self.provider.generate, snap.system_prompt, messages)
 
         c = _wait(classify_f, self.classify_timeout_s, started)
         if c.error is not None:
@@ -223,7 +247,8 @@ class Pipeline:
 
 
 def build_pipeline(
-    policy: Policy, settings: Any, counter: DailyCounter, log: ExchangeLog | None = None
+    policy: Policy | PolicyStore, settings: Any, counter: DailyCounter, log: ExchangeLog | None = None,
+    controls: Controls | None = None,
 ) -> Pipeline:
     """Wire up the answering model and both guardrail checks from talkbox.toml settings."""
     from talkbox.guardrails import ModelClassifier, ModelOutputChecker
@@ -245,4 +270,5 @@ def build_pipeline(
         classify_timeout_s=g.classifier.timeout_seconds,
         check_timeout_s=g.output_check.timeout_seconds,
         generate_timeout_s=settings.provider_settings.get("timeout_seconds"),
+        controls=controls,
     )

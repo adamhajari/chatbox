@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import tomllib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 
@@ -17,6 +17,13 @@ class Settings:
     max_history_exchanges: int
     guardrails: GuardrailSettings
     speech: SpeechSettings | None = None  # None when talkbox.toml has no [speech]
+    web: WebSettings = field(default_factory=lambda: WebSettings())  # [web]: parent UI
+
+
+@dataclass(frozen=True)
+class WebSettings:
+    host: str = "auto"  # "auto" = this computer's home-network address
+    port: int = 8321
 
 
 @dataclass(frozen=True)
@@ -87,4 +94,8 @@ def load_settings(path: str | Path = "talkbox.toml") -> Settings:
             output_check=_check(g["output_check"]),
         ),
         speech=_speech(data),
+        web=WebSettings(
+            host=str(data.get("web", {}).get("host", "auto")),
+            port=int(data.get("web", {}).get("port", 8321)),
+        ),
     )

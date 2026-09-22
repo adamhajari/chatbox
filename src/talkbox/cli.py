@@ -9,8 +9,9 @@ from dotenv import load_dotenv
 from pydantic import ValidationError
 
 from talkbox.config import load_settings
-from talkbox.log import DailyCounter, ExchangeLog
+from talkbox.log import Controls, DailyCounter, ExchangeLog
 from talkbox.policy import load_policy
+from talkbox.policy_store import PolicyStore
 from talkbox.prompt import compile_system_prompt
 
 
@@ -23,18 +24,44 @@ def _load_policy_or_exit(path: Path):
         sys.exit(f"Policy file {path} is invalid:\n{e}")
 
 
+def _start_web(args, settings, store: PolicyStore, counter, controls, log):
+    """With --web, serve the parent settings page from this process, sharing `store`."""
+    if not args.web:
+        return None
+    from talkbox.web.app import WebServer
+
+    try:
+        server = WebServer(store, settings.web.host, settings.web.port,
+                           counter=counter, controls=controls, log=log)
+        server.start()
+    except RuntimeError as e:
+        sys.exit(f"Parent web UI: {e}")
+    print(f"Parent settings: open {server.url} on a phone or computer on this network.")
+    print("  No password yet: anyone on the home network can change the settings.")
+    return server
+
+
+def _open_db(args, settings):
+    db = args.db or settings.database_path
+    counter, controls = DailyCounter(db), Controls(db)
+    log = ExchangeLog(db) if settings.logging_enabled else None
+    if controls.paused:
+        print("Talkbox is PAUSED (from the settings page): every question gets the resting reply.")
+    return counter, controls, log
+
+
 def cmd_chat(args, settings) -> None:
     from talkbox.pipeline import build_pipeline
 
-    policy = _load_policy_or_exit(args.policy or settings.policy_path)
-    db = args.db or settings.database_path
-    counter = DailyCounter(db)
-    log = ExchangeLog(db) if settings.logging_enabled else None
-    pipeline = build_pipeline(policy, settings, counter, log)
-    name = policy.persona.name
+    path = args.policy or settings.policy_path
+    store = PolicyStore(_load_policy_or_exit(path), path)
+    policy = store.policy
+    counter, controls, log = _open_db(args, settings)
+    pipeline = build_pipeline(store, settings, counter, log, controls)
     g = settings.guardrails
+    web = _start_web(args, settings, store, counter, controls, log)
 
-    print(f"Talkbox ({name}) · policy {policy.version_label()} · "
+    print(f"Talkbox ({policy.persona.name}) · policy {policy.version_label()} · "
           f"{pipeline.provider.name}/{pipeline.provider.model}")
     print(f"Guardrails: classifier {g.classifier.provider_settings['model']}, "
           f"output check {g.output_check.provider_settings['model'] if g.output_check.enabled else 'OFF'}")
@@ -56,14 +83,17 @@ def cmd_chat(args, settings) -> None:
                 print("(new session)\n")
                 continue
             answer = pipeline.ask(question)
-            print(f"{name}> {answer.text}")
+            print(f"{pipeline.policy.persona.name}> {answer.text}")
             if args.verbose:
                 _print_steps(answer.steps, answer.latency_ms)
             print()
     except KeyboardInterrupt:
         print()
     finally:
+        if web:
+            web.stop()
         counter.close()
+        controls.close()
         if log:
             log.close()
 
@@ -89,11 +119,11 @@ def cmd_talk(args, settings) -> None:
     if settings.speech is None:
         sys.exit("talkbox.toml has no [speech] section (see README: voice setup)")
     sp = settings.speech
-    policy = _load_policy_or_exit(args.policy or settings.policy_path)
-    db = args.db or settings.database_path
-    counter = DailyCounter(db)
-    log = ExchangeLog(db) if settings.logging_enabled else None
-    pipeline = build_pipeline(policy, settings, counter, log)
+    path = args.policy or settings.policy_path
+    store = PolicyStore(_load_policy_or_exit(path), path)
+    policy = store.policy
+    counter, controls, log = _open_db(args, settings)
+    pipeline = build_pipeline(store, settings, counter, log, controls)
 
     def pick(cls):
         names = {f.name for f in fields(cls)}
@@ -104,6 +134,7 @@ def cmd_talk(args, settings) -> None:
     speaker = LaptopSpeaker(ptt_settings.output_device, tts.sample_rate)
     turn = VoiceTurn(pipeline, stt, tts, speaker, voice_settings)
     g = settings.guardrails
+    web = _start_web(args, settings, store, counter, controls, log)
     print(f"Talkbox ({policy.persona.name}) · policy {policy.version_label()} · "
           f"{pipeline.provider.name}/{pipeline.provider.model}")
     print(f"Speech: {stt.name}/{stt.model} → text → {tts.name}/{tts.voice}. "
@@ -128,7 +159,7 @@ def cmd_talk(args, settings) -> None:
                     print("(tap too short; hold the spacebar while talking)")
                 else:
                     print(f"kid> {result.transcript or '(nothing recognized)'}")
-                    print(f"{policy.persona.name}> {result.spoken}")
+                    print(f"{pipeline.policy.persona.name}> {result.spoken}")
                 if args.verbose:
                     _print_steps(result.steps)
                 print()
@@ -136,7 +167,10 @@ def cmd_talk(args, settings) -> None:
     except KeyboardInterrupt:
         print()
     finally:
+        if web:
+            web.stop()
         counter.close()
+        controls.close()
         if log:
             log.close()
 
@@ -173,9 +207,11 @@ def main(argv: list[str] | None = None) -> None:
 
     chat = sub.add_parser("chat", help="type questions as a kid would")
     chat.add_argument("-v", "--verbose", action="store_true", help="show pipeline decisions")
+    chat.add_argument("--web", action="store_true", help="also serve the parent settings page")
     chat.set_defaults(func=cmd_chat)
     talk = sub.add_parser("talk", help="hold the spacebar and ask out loud")
     talk.add_argument("-v", "--verbose", action="store_true", help="show pipeline decisions")
+    talk.add_argument("--web", action="store_true", help="also serve the parent settings page")
     talk.set_defaults(func=cmd_talk)
     sub.add_parser("check-policy", help="validate the policy file").set_defaults(func=cmd_check_policy)
     sub.add_parser("show-prompt", help="print the compiled system prompt").set_defaults(func=cmd_show_prompt)

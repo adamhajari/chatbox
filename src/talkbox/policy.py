@@ -56,7 +56,7 @@ class Topic(_Strict):
     @classmethod
     def _id_format(cls, v: str) -> str:
         if not _ID_RE.match(v):
-            raise ValueError("topic id must be lowercase letters, digits and underscores")
+            raise ValueError("use only lowercase letters, numbers and underscores (like outer_space)")
         return v
 
 
@@ -74,7 +74,7 @@ class Topics(_Strict):
         ids = [t.id for t in (*self.allowed, *self.blocked, *self.redirect_to_parent)]
         dupes = sorted({i for i in ids if ids.count(i) > 1})
         if dupes:
-            raise ValueError(f"topic ids must be unique across all lists: {dupes}")
+            raise ValueError(f"each topic needs its own id; used more than once: {', '.join(dupes)}")
         return self
 
 
@@ -87,13 +87,13 @@ class TimeWindow(_Strict):
     @classmethod
     def _hhmm(cls, v: str) -> str:
         if not _HHMM_RE.match(v):
-            raise ValueError("times must be HH:MM (24-hour)")
+            raise ValueError("use 24-hour time, like 07:30 or 19:00")
         return v
 
     @model_validator(mode="after")
     def _ordered(self) -> TimeWindow:
         if self.start_time >= self.end_time:
-            raise ValueError("window start must be before end (windows can't cross midnight)")
+            raise ValueError("the end time must be after the start time (a window can't go past midnight)")
         return self
 
     @property
@@ -115,7 +115,7 @@ class Schedule(_Strict):
         try:
             ZoneInfo(v)
         except (ZoneInfoNotFoundError, ValueError) as e:
-            raise ValueError(f"unknown timezone {v!r}") from e
+            raise ValueError(f"unknown timezone {v!r}; use a name like America/New_York") from e
         return v
 
 
@@ -160,5 +160,5 @@ def load_policy(path: str | Path) -> Policy:
 
 
 def policy_json_schema() -> dict:
-    """JSON Schema for the policy; the Phase 4 web UI can build its form from this."""
+    """JSON Schema for the policy (for tools and future UIs)."""
     return Policy.model_json_schema()

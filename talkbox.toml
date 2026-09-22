@@ -4,6 +4,14 @@
 policy = "policies/default.yaml"
 database = "data/talkbox.db"
 
+# Parent web UI (talkbox talk --web / talkbox chat --web). No password yet (PLAN.md D7a):
+# anyone on the home network can open it and edit the policy.
+[web]
+# "auto" binds to this computer's home-network address only (not every interface).
+# Or give an address, e.g. "192.168.1.20", or "127.0.0.1" for this computer only.
+host = "auto"
+port = 8321
+
 [chat]
 # Follow-ups within one chat session keep context; this caps how many past
 # question/answer pairs are sent along (older ones are dropped).
@@ -12,7 +20,7 @@ max_history_exchanges = 20
 [logging]
 # Off for now (PLAN.md D8). When off, only a per-day question count is stored
 # (for the daily cap); no question or answer text is saved.
-enabled = false
+enabled = true
 
 [provider]
 name = "anthropic"
