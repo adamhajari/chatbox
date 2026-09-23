@@ -341,16 +341,60 @@ free -m           # "available" is the number that matters, against ~1 GB total
 of the two, not their sum. `output_check` reads 0 ms because it's off (D21); turning it
 on adds about a second. The wide upper range is API tail latency, not the machine.
 
-### Pi 3B (fill in on first boot)
+### Pi 3B (measured 2026-09-22, Python 3.13.5, same model and settings)
 
 | | median | range |
 |---|---|---|
-| start → first `kid>` prompt | | |
-| question, end to end | | |
-| · `classify` | | |
-| · `generate` | | |
-| peak memory, one process | | |
-| `free -m` available while running | | |
+| start → first `kid>` prompt | 7.59 s | 7.58–7.70 |
+| question, end to end | 1.40 s | 1.12–4.12 |
+| · `classify` | 1.34 s | 1.05–4.11 |
+| · `generate` | 1.33 s | 1.05–1.79 |
+| peak memory, one process | 70 MB | of 1 GB |
+
+Per question the Pi 3B is **level with the Mac** (1.40 s against 1.42 s). Start-up is 18×
+slower — imports read off an SD card — and is paid once per run, not per question.
+
+An earlier run of the same command on the same board gave a median of 2.77 s with an
+11.6 s worst case. Nothing was changed between the two. `scripts/probe_net.py` explains
+why that run was not the board's fault:
+
+| | Mac | Pi 3B |
+|---|---|---|
+| tcp connect | 9 ms | 8 ms |
+| tls handshake | 17 ms | 41 ms |
+| warm API call | 506 ms | 547 ms |
+| two concurrent calls | 528 / 609 ms | 537 / 764 ms |
+
+The link, the TLS handshake and concurrent calls are all at parity, so the spikes were
+API-side or network-side variance. The Mac shows the same tail in miniature: a 5.5 s
+worst case on a full-length answer, on a fast machine and a 5 GHz link.
+
+### Verdict: stay on the Pi 3B
+
+**Don't buy a Pi 5.** Per-question time matches the laptop, memory sits at 70 MB of 1 GB,
+and nothing measured here is bounded by the board. Revisit only if the voice path (phase
+6b) pushes memory near the limit once gRPC and audio buffers are loaded, or if a local
+wake word is ever added (PLAN.md D5) — that is real local compute, and the only workload
+in this project that would be.
+
+The one thing a Pi 5 would buy today is a 5 GHz radio; the Pi 3B is 2.4 GHz only. That
+did not show up as a problem in these measurements, but it is the thing to suspect if
+latency gets worse once the box lives in a kid's room, further from the router.
+
+### Open: the classifier deadline is too tight
+
+`[guardrails.classifier] timeout_seconds = 4` is a hard deadline. Past it the pipeline
+fails closed: the answer that was generated concurrently is discarded and the child hears
+the "something went wrong" reply.
+
+At 4 s this failed **7 of 12 questions** on the Pi. Even in the good run above, with the
+deadline raised for measurement, one classify took 4.11 s — it would have failed closed.
+The Mac is not safe either: its worst classify was 2.84 s against the same 4 s ceiling.
+
+Raising it is not free: D4 budgets 5 s from the end of a question to the start of speech,
+and a long deadline means a child stands there waiting. This needs a decision, not a
+tuning tweak. The measured numbers to decide from: classify is ~1.2–1.3 s typically, and
+its tail reached 4.1 s in a good run and 11.5 s in a bad one.
 
 ### How to read it
 
