@@ -100,6 +100,10 @@ release_gap_seconds = 0.2
 # The Pi's arcade button as push-to-talk, alongside the spacebar (docs/hardware.md).
 # Uncomment on the Pi; on the laptop leave it off and use SPACE.
 # button_gpio = 17
+# Status LED as [red, green, blue] GPIO pins, and how it's wired: true = long leg to
+# 3V3 (common anode), false = long leg to ground. scripts/gpio_check.py tests it alone.
+# led_gpio = [22, 23, 24]
+# led_common_anode = true
 # Audio devices by name or number (python -m sounddevice lists them); omit for defaults.
 # input_device = "MacBook Pro Microphone"
 # output_device = "MacBook Pro Speakers"

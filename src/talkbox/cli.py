@@ -112,6 +112,7 @@ def cmd_talk(args, settings) -> None:
     from talkbox.audio import audio_device_problem
     from talkbox.audio.laptop import (Keyboard, KeyboardPress, LaptopSpeaker, PushToTalkMic,
                                       PushToTalkSettings)
+    from talkbox.audio.light import LitSpeaker, NoLight
     from talkbox.audio.press import AnyPress
     from talkbox.pipeline import build_pipeline
     from talkbox.speech import make_stt, make_tts
@@ -139,6 +140,19 @@ def cmd_talk(args, settings) -> None:
     ptt_settings, voice_settings = pick(PushToTalkSettings), pick(VoiceSettings)
     stt, tts = make_stt(sp.stt_name, sp.stt_settings), make_tts(sp.tts_name, sp.tts_settings)
     speaker = LaptopSpeaker(ptt_settings.output_device, tts.sample_rate)
+    light = NoLight()
+    if ptt_settings.led_gpio is not None:
+        from talkbox.audio.pi import RgbLed
+
+        try:
+            red, green, blue = ptt_settings.led_gpio
+            light = RgbLed(red, green, blue, ptt_settings.led_common_anode)
+        except ValueError:
+            sys.exit("[voice] led_gpio needs exactly three pins, as [red, green, blue]")
+        except RuntimeError as e:
+            sys.exit(f"Status light: {e}")
+    # The light rides on the speaker, so the voice turn stays free of hardware.
+    speaker = LitSpeaker(speaker, light)
     turn = VoiceTurn(pipeline, stt, tts, speaker, voice_settings)
     g = settings.guardrails
     web = _start_web(args, settings, store, counter, controls, log)
@@ -185,6 +199,7 @@ def cmd_talk(args, settings) -> None:
     except KeyboardInterrupt:
         print()
     finally:
+        speaker.close()
         if web:
             web.stop()
         counter.close()

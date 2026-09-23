@@ -543,3 +543,125 @@ def test_keyboard_press_reads_commands():
     assert press.poll_command(0.0) == "new"
     assert press.poll_command(0.0) == "quit"
     assert press.poll_command(0.0) is None
+
+
+# ---- the status light (PLAN.md section 1: kids get audio and lights, not text) ------
+
+class FakeLight:
+    def __init__(self):
+        self.states = []
+        self.closed = False
+
+    def show(self, state):
+        self.states.append(state)
+
+    def close(self):
+        self.closed = True
+
+
+class FakeLed:
+    """Stands in for gpiozero's RGBLED."""
+
+    def __init__(self):
+        self.value = None
+        self.closed = False
+
+    def close(self):
+        self.closed = True
+
+
+def lit(speaker=None):
+    from talkbox.audio.light import LitSpeaker
+
+    light = FakeLight()
+    return LitSpeaker(speaker or CollectingSpeaker(), light), light
+
+
+class CollectingSpeaker:
+    def __init__(self):
+        self.cues, self.audio = [], b""
+
+    def cue(self, name, **kwargs):
+        self.cues.append(name)
+
+    def play(self, audio, sample_rate):
+        self.audio += b"".join(audio)
+
+
+def test_cues_drive_the_light_and_still_reach_the_speaker():
+    speaker = CollectingSpeaker()
+    lit_speaker, light = lit(speaker)
+    for cue in ("listening", "stopped", "cancel", "error"):
+        lit_speaker.cue(cue)
+    assert light.states == ["listening", "thinking", "idle", "error"]
+    assert speaker.cues == ["listening", "stopped", "cancel", "error"]
+
+
+def test_playing_shows_speaking_then_returns_to_idle():
+    lit_speaker, light = lit()
+    lit_speaker.play([b"\x00\x00"], 24_000)
+    assert light.states == ["speaking", "idle"]
+
+
+def test_light_returns_to_idle_even_if_playback_fails():
+    class Broken:
+        def cue(self, name, **kwargs):
+            pass
+
+        def play(self, audio, sample_rate):
+            raise RuntimeError("speaker gone")
+
+    from talkbox.audio.light import LitSpeaker
+
+    light = FakeLight()
+    with pytest.raises(RuntimeError):
+        LitSpeaker(Broken(), light).play([b""], 24_000)
+    assert light.states == ["speaking", "idle"]
+
+
+def test_a_whole_spoken_turn_lights_listening_thinking_speaking(make):
+    """The light follows a real turn without the voice code knowing it exists.
+
+    The two cues that bracket the recording come from the recorder, not the voice turn:
+    "listening" before the mic opens and "stopped" when the button is released. Both go
+    through the same speaker, which is what lets one wrapper see every state.
+    """
+    from talkbox.audio.light import LitSpeaker
+
+    light = FakeLight()
+    turn, speaker, _ = make()
+    lit_speaker = LitSpeaker(speaker, light)
+    turn.speaker = lit_speaker
+
+    def recording():
+        lit_speaker.cue("listening")
+        yield from speech()
+        lit_speaker.cue("stopped")     # released: the pipeline takes over
+
+    turn.run(recording(), RATE)
+    assert light.states[0] == "listening"
+    assert light.states.index("thinking") < light.states.index("speaking")
+    assert light.states[-1] == "idle"      # never left lit
+
+
+def test_rgb_led_maps_states_to_channels():
+    from talkbox.audio.pi import RgbLed
+
+    led = FakeLed()
+    light = RgbLed(led=led)
+    light.show("listening")
+    assert led.value == (0, 1, 0)
+    light.show("thinking")
+    assert led.value == (1, 1, 0)          # amber: red and green together
+    light.show("something new")            # unknown states go dark, never raise
+    assert led.value == (0, 0, 0)
+    light.close()
+    assert led.closed
+
+
+def test_no_light_is_silent():
+    from talkbox.audio.light import NoLight
+
+    light = NoLight()
+    light.show("listening")
+    light.close()

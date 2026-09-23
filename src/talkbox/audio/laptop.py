@@ -37,6 +37,9 @@ class PushToTalkSettings:
     output_device: str | int | None = None
     # GPIO pin of the Pi's arcade button (docs/hardware.md). None = spacebar only.
     button_gpio: int | None = None
+    # GPIO pins of the status LED as [red, green, blue]. None = no light.
+    led_gpio: list[int] | None = None
+    led_common_anode: bool = True   # long leg to 3V3; False = common cathode (to GND)
 
 
 class HoldDetector:
