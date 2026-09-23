@@ -75,6 +75,43 @@ button is *held*.
 
 ---
 
+## Assembling it
+
+Verified on a breadboard first (`scripts/gpio_check.py`), then soldered. The rule
+throughout: **solder at the components, never at the Pi's header** — the header is the
+only way to take the thing apart again.
+
+**Wires.** Cut female-to-female DuPont jumpers in half and solder the cut end to the
+component. That leaves a proper female connector at the Pi end with no crimp tool
+involved, and the whole assembly unplugs. Five wires: two for the button, four for the
+LED.
+
+**Before cutting anything**, mark the LED legs R / A / G / B with tape. The common leg is
+identified by being longest, and trimming the legs destroys that cue permanently.
+
+**Each LED leg**, in this order — the first step is the one that gets skipped:
+
+1. Slide the heat-shrink onto the wire. It cannot be added afterwards.
+2. Tin the LED leg and the resistor lead.
+3. Solder the resistor to the leg, a few centimetres from the LED body so the heat
+   doesn't reach the die.
+4. Solder the wire to the resistor's far end.
+5. Shrink the tubing over the joint, resistor included.
+
+Leave the leads long enough to reach the front panel with slack. Cardboard means the
+LED will get repositioned.
+
+**The button** has 2.8 mm quick-connect spade lugs. Push-on spade connectors are better
+than solder here: they survive repeated pressing, and this button will be hit thousands
+of times by a child. If soldering instead, hook the wire through the lug's hole before
+applying heat, and zip-tie the wire pair to the button body for strain relief so the
+joint never takes the pull.
+
+**Label every wire** with tape as you go. Four near-identical wires from an RGB LED are
+miserable to trace later.
+
+---
+
 ## Software
 
 `gpiozero` is BSD-3-Clause and `lgpio` is Unlicense, both fine under the licensing
