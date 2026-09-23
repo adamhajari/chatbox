@@ -71,6 +71,9 @@ To run Talkbox on a Raspberry Pi instead of the laptop, see
 | `talkbox.local.toml` | Per-machine settings (audio devices, GPIO pins), merged over `talkbox.toml`. Never committed; copy `talkbox.local.toml.example` to start. |
 | `.env` | Secrets (`ANTHROPIC_API_KEY`, and for voice `GOOGLE_APPLICATION_CREDENTIALS`, `GOOGLE_CLOUD_PROJECT`). |
 | `scripts/measure.py` | Times `talkbox chat` end to end, per pipeline step, for comparing machines. |
+| `scripts/gpio_check.py`, `scripts/screen_check.py` | Prove the Pi's button, LED and screen are wired right, on their own (see `docs/hardware.md`). |
+| `scripts/screen_demo.py` | Shows a real question's picture on the screen, with no microphone or speaker needed. |
+| `data/pictures/` | Cached screen pictures, one per subject. Safe to delete; it refills itself. |
 | `data/talkbox.db` | SQLite: per-day question counts, the pause switch, plus the exchange log when logging is on. |
 
 ## Sessions, logging, and models
@@ -257,8 +260,9 @@ hold SPACE ─▶ mic streams to speech-to-text ─▶ release ─▶ transcript
   `release_gap_seconds`, or the keyboard repeat settings in System Settings → Keyboard.
   If key repeat is turned off entirely, every press looks like a tap.
 - **Adapters.** The voice turn (`src/talkbox/voice.py`) never touches devices. The laptop
-  adapter (`src/talkbox/audio/laptop.py`) supplies the mic, speaker and spacebar. The Pi
-  will add its own adapter with a button and LEDs.
+  adapter (`src/talkbox/audio/laptop.py`) supplies the mic, speaker and spacebar. The Pi's
+  (`src/talkbox/audio/pi.py`) adds the arcade button, the status LED and the screen, each
+  behind a wrapper so the voice turn stays free of hardware.
 - **Swappable services.** `SpeechToText` and `TextToSpeech` in `src/talkbox/speech/base.py`.
   To add a vendor, add a class and a name in `make_stt` / `make_tts`.
 
@@ -281,6 +285,66 @@ hold SPACE ─▶ mic streams to speech-to-text ─▶ release ─▶ transcript
 pipeline step, `pipeline` (total), `tts` (time to first audio), and `speech_start` (end of
 question to first audio, the D4 number: at most 5,000 ms).
 
+## The screen (Pi only)
+
+A 2.2" SPI display showing a picture of what was asked about while Talkbox answers
+(PLAN.md D28/D29). **Pictures only, never text** — neither kid reads fluently, so the
+screen supplements the spoken answer and is never needed to understand it.
+
+```
+classifier (already running) ─▶ subject ─▶ Wikipedia article's lead image ─▶ cache
+                                                                             │
+        answer starts playing ─▶ show whatever is ready ─── turn ends ─▶ blank
+```
+
+- **The subject comes from the guardrail classifier**, which already runs on every
+  question, so there is no extra model call and no extra latency. `Classification.subject`
+  is the concrete thing the question is about (`"octopus"`, `"the Moon"`), or `None`
+  where there isn't one ("why do we have to sleep?"). It never affects a decision.
+- **The picture is the Wikipedia article's lead image** for that subject — not a
+  Wikimedia Commons free-text image search, which ranks every file anyone has ever
+  uploaded against a word. One API request per subject, then a disk cache, including a
+  negative entry so a subject with no picture is looked up once.
+- **Speech never waits for a picture.** The lookup runs on its own thread with a hard
+  timeout (`[screen] timeout_seconds`). Whatever is ready when the answer starts is
+  shown; anything still in flight appears late, or not at all. D4's 5 s budget is
+  untouched.
+- **Nothing can break a turn.** No article, no network, a dead panel, a missing library:
+  every one of them means no picture and an identical spoken answer.
+- **Blocked and redirected questions show nothing.** Only an "allow" starts a lookup.
+- **Between turns the screen is blank**, and with `backlight_gpio` set the backlight
+  goes out with it, so it's genuinely dark rather than a lit grey rectangle.
+- **Adapters, not plumbing.** `talkbox/voice.py` and the pipeline know nothing about the
+  screen, exactly as with the status light. `talkbox/audio/picture.py` wraps the
+  classifier (to catch the subject) and the speaker (to show and clear); the panel itself
+  is `Screen` in `talkbox/audio/pi.py`, lazily imported.
+
+> **The picture is not checked by any guardrail before a child sees it** (PLAN.md D29).
+> The classifier checks the *question*; nothing checks the image that comes back. This
+> is a real gap in the promise that nothing reaches a child unchecked, accepted for v1
+> only because Talkbox is family-only and supervised (D17). It must be revisited before
+> unsupervised use, and certainly before any other family's children — most likely as a
+> parent-approved subject list edited from the settings page.
+
+### Screen settings (`talkbox.toml`)
+
+The screen is off unless a machine turns it on, so these live in `talkbox.local.toml`
+on the Pi; `talkbox.toml` documents them and ships with `enabled = false`.
+
+| Setting | Meaning |
+|---|---|
+| `[screen] enabled` | `false`, or no `[screen]` section, means no screen: nothing imported, no pin opened, no picture fetched. |
+| `[screen] dc_gpio`, `reset_gpio`, `cs` | D/C and RESET pins, and which SPI0 chip select (0 = CE0). |
+| `[screen] baudrate` | SPI clock. Drop to `16000000` if the picture is noisy or torn. |
+| `[screen] rotation` | `0`, `90`, `180` or `270`, if the panel is mounted the other way up. |
+| `[screen] backlight_gpio` | The backlight's pin, so a blank screen is genuinely dark. Unset = wired to 3V3 and always on. |
+| `[screen] backlight_active_high` | `false` if a P-MOSFET switches the backlight (the pin lights it by going low). |
+| `[screen] timeout_seconds` | Hard ceiling on looking a picture up. Speech never waits for it. |
+| `[screen] cache_dir` | Where pictures are cached. Unset = `pictures/` beside the database. |
+
+Wiring, the parts list and what each failure looks like: `docs/hardware.md`.
+`scripts/screen_check.py` proves the panel on its own before any of this is turned on.
+
 ## Tests
 
 ```bash
@@ -289,7 +353,8 @@ pytest -m "not live"   # unit tests only; the model, speech services and audio d
 pytest                 # also runs the live smoke tests when ANTHROPIC_API_KEY is set
 pytest -m live -s      # just the live smoke tests, printing each step and its time
                        # (the voice one needs the Google keys; it plays tests/fixtures/question.wav,
-                       #  a synthetic voice, through real speech-to-text and text-to-speech)
+                       #  a synthetic voice, through real speech-to-text and text-to-speech.
+                       #  The screen's live test calls the real Wikipedia API and needs no key.)
 ```
 
 Unit tests use a frozen copy of the policy (`tests/fixtures/policy.yaml`), so editing
