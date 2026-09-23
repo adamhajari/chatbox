@@ -44,11 +44,17 @@ def main() -> None:
     ap.add_argument("--loop", action="store_true", help="run the default questions")
     ap.add_argument("--no-screen", action="store_true",
                     help="fetch but don't open the display (works on the laptop)")
+    ap.add_argument("--backlight", type=int, metavar="GPIO",
+                    help="backlight pin, overriding talkbox.toml (as screen_check.py)")
+    ap.add_argument("--backlight-active-low", action="store_true",
+                    help="the pin lights the backlight by going LOW (P-MOSFET switch)")
     ap.add_argument("--seconds", type=float, default=6.0, help="how long to hold each picture")
     ap.add_argument("--config", default=str(ROOT / "talkbox.toml"))
     args = ap.parse_args()
 
     from dotenv import load_dotenv
+
+    from dataclasses import replace
 
     from talkbox.config import ScreenSettings, load_settings
     from talkbox.pictures import PictureFinder
@@ -56,9 +62,18 @@ def main() -> None:
     load_dotenv(ROOT / ".env")
     settings = load_settings(args.config)
     screen_settings = settings.screen or ScreenSettings()
+    if args.backlight is not None:
+        screen_settings = replace(screen_settings, backlight_gpio=args.backlight,
+                                  backlight_active_high=not args.backlight_active_low)
     if settings.screen is None and not args.no_screen:
-        print("note: [screen] enabled is false, so these are its default pins.\n"
-              "      Set enabled = true in talkbox.local.toml once this works.\n")
+        print("note: [screen] enabled is false, so these are the default pins.")
+        if screen_settings.backlight_gpio is None:
+            # The failure this prevents: the picture is drawn correctly onto a panel
+            # whose backlight was never switched on, which looks like nothing happened.
+            print("      The backlight is unset, so if it is on a GPIO rather than 3V3\n"
+                  "      the screen will stay DARK. Pass --backlight 12, or set\n"
+                  "      backlight_gpio in talkbox.local.toml.")
+        print()
 
     display = None
     if not args.no_screen:
