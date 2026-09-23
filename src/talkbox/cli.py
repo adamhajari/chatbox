@@ -8,7 +8,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 from pydantic import ValidationError
 
-from talkbox.config import load_settings
+from talkbox.config import ConfigError, load_settings
 from talkbox.log import Controls, DailyCounter, ExchangeLog
 from talkbox.policy import load_policy
 from talkbox.policy_store import PolicyStore
@@ -264,7 +264,11 @@ def main(argv: list[str] | None = None) -> None:
     load_dotenv()
     if not args.config.exists():
         sys.exit(f"Config file not found: {args.config}")
-    args.func(args, load_settings(args.config))
+    try:
+        settings = load_settings(args.config)
+    except ConfigError as e:
+        sys.exit(str(e))
+    args.func(args, settings)
 
 
 if __name__ == "__main__":

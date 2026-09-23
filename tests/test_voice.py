@@ -692,3 +692,16 @@ def test_without_a_local_config_nothing_changes(tmp_path):
     settings = load_settings(tmp_path / "talkbox.toml")
     assert settings.local_config is None
     assert settings.speech.voice.get("button_gpio") is None
+
+
+def test_local_config_keys_outside_a_section_are_an_error(tmp_path):
+    """The failure this prevents: uncommenting `button_gpio` but not `[voice]` above it,
+    which is valid TOML that silently does nothing."""
+    from talkbox.config import ConfigError, load_settings
+
+    (tmp_path / "talkbox.toml").write_text((ROOT / "talkbox.toml").read_text())
+    (tmp_path / "talkbox.local.toml").write_text("button_gpio = 17\nled_gpio = [22, 23, 24]\n")
+
+    with pytest.raises(ConfigError) as e:
+        load_settings(tmp_path / "talkbox.toml")
+    assert "button_gpio" in str(e.value) and "section" in str(e.value)

@@ -91,6 +91,25 @@ def _merge(base: dict, override: dict) -> dict:
     return merged
 
 
+# Every section talkbox.toml understands. A key outside one of these does nothing, and
+# the most likely reason is a [section] header left commented out.
+_SECTIONS = frozenset({"paths", "web", "chat", "logging", "provider", "guardrails",
+                       "speech", "voice"})
+
+
+class ConfigError(Exception):
+    """A settings file is malformed in a way that would otherwise pass silently."""
+
+
+def _check_sections(data: dict, path: Path) -> None:
+    stray = sorted(k for k in data if k not in _SECTIONS)
+    if stray:
+        raise ConfigError(
+            f"{path.name} has {', '.join(repr(k) for k in stray)} outside any section, "
+            f"where nothing reads them.\nDid you leave a [section] header commented out? "
+            f"Known sections: {', '.join(sorted(_SECTIONS))}.")
+
+
 def local_config_path(path: str | Path = "talkbox.toml") -> Path:
     """talkbox.toml -> talkbox.local.toml, beside it."""
     return Path(path).with_suffix(".local.toml")
@@ -102,7 +121,9 @@ def load_settings(path: str | Path = "talkbox.toml") -> Settings:
     local = local_config_path(path)
     local_used = None
     if local.exists():
-        data = _merge(data, tomllib.loads(local.read_text(encoding="utf-8")))
+        overrides = tomllib.loads(local.read_text(encoding="utf-8"))
+        _check_sections(overrides, local)
+        data = _merge(data, overrides)
         local_used = local
     base = path.parent
     provider = data["provider"]

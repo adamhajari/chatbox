@@ -1,18 +1,23 @@
 # Per-machine settings, merged over talkbox.toml. Never committed (.gitignore).
-# Copy to talkbox.local.toml and keep only the keys that differ on this machine.
+# Copy to talkbox.local.toml and uncomment only the keys that differ on this machine.
 #
 #     cp talkbox.local.toml.example talkbox.local.toml
 #
-# Sections merge key by key, so setting one value here leaves the rest of that
-# section alone.
+# Sections merge key by key, so setting one value leaves the rest of that section alone.
+# Leave the [section] headers below as they are: a key without its header lands at the
+# top level of the file, where nothing reads it.
 
 # --- Raspberry Pi with the button and status LED (docs/hardware.md) ---
-# [voice]
+[voice]
 # button_gpio = 17
 # led_gpio = [22, 23, 24]
 # led_common_anode = true
 # input_device = "USB PnP Sound Device"
 
 # --- a machine that needs a fixed web address ---
-# [web]
+[web]
 # host = "192.168.1.20"
+
+# --- a slower machine that needs a longer deadline for the classifier ---
+[guardrails.classifier]
+# timeout_seconds = 9
