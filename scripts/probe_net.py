@@ -10,6 +10,8 @@ of talking to the API into the parts that behave differently on a Raspberry Pi:
   warm              a later call reusing that connection
   concurrent pair   two calls at once, which is what the pipeline really does
                     (classify and generate are submitted together)
+  long              a call that generates a real answer's worth of tokens, to separate
+                    fixed round-trip cost from anything that scales with the response
 
 Run it on the Pi and on the Mac and compare. Uses tiny requests (a few tokens each).
 
@@ -59,12 +61,15 @@ def connection_costs() -> dict[str, float]:
     return {"dns": dns, "tcp": tcp, "tls": handshake, "cipher": cipher}
 
 
-def api_costs(client) -> float:
-    """One minimal API call. Returns milliseconds."""
+def api_costs(client, max_tokens: int = 1, prompt: str = "hi") -> float:
+    """One API call. Returns milliseconds."""
     t = time.monotonic()
-    client.messages.create(model="claude-haiku-4-5", max_tokens=1,
-                           messages=[{"role": "user", "content": "hi"}])
+    client.messages.create(model="claude-haiku-4-5", max_tokens=max_tokens,
+                           messages=[{"role": "user", "content": prompt}])
     return _ms(t)
+
+
+LONG_PROMPT = "Explain why the sky is blue to a six-year-old, in about four sentences."
 
 
 def main() -> None:
@@ -80,7 +85,8 @@ def main() -> None:
 
     print(f"{sys.platform} · python {sys.version.split()[0]} · {HOST} · {args.rounds} rounds\n")
     rows: dict[str, list[float]] = {k: [] for k in
-                                    ("dns", "tcp", "tls", "cold", "warm", "pair-a", "pair-b")}
+                                    ("dns", "tcp", "tls", "cold", "warm", "pair-a",
+                                     "pair-b", "long")}
     cipher = "?"
 
     for i in range(args.rounds):
@@ -101,9 +107,11 @@ def main() -> None:
         rows["pair-a"].append(a)
         rows["pair-b"].append(b)
 
+        rows["long"].append(api_costs(client, max_tokens=300, prompt=LONG_PROMPT))
+
         print(f"round {i + 1}: dns {c['dns']:.0f}  tcp {c['tcp']:.0f}  tls {c['tls']:.0f}  "
               f"cold {rows['cold'][-1]:.0f}  warm {rows['warm'][-1]:.0f}  "
-              f"pair {a:.0f}/{b:.0f}  (ms)")
+              f"pair {a:.0f}/{b:.0f}  long {rows['long'][-1]:.0f}  (ms)")
 
     print(f"\ncipher: {cipher}")
     print("\nsummary (ms)")
@@ -117,7 +125,10 @@ How to read it:
   warm close to the Mac's warm    -> the network and the board are fine once connected.
   pair much worse than warm       -> the two concurrent calls are fighting each other.
   everything jittery, max >> median, including tcp and dns
-                                  -> the Wi-Fi link is the problem, not the board.""")
+                                  -> the Wi-Fi link is the problem, not the board.
+  warm matches the Mac but long does not
+                                  -> the cost scales with the response, not the
+                                     connection: the board is handling the reply slowly.""")
 
 
 if __name__ == "__main__":
