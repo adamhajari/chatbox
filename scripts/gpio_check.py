@@ -42,8 +42,10 @@ def main() -> None:
         from gpiozero import RGBLED, Button
     except ImportError:
         sys.exit("gpiozero isn't installed. On the Pi:\n"
-                 "  sudo apt install -y python3-dev\n"
-                 "  .venv/bin/pip install gpiozero lgpio")
+                 "  sudo apt install -y python3-dev swig\n"
+                 "  .venv/bin/pip install gpiozero lgpio\n"
+                 "swig is needed because lgpio has no wheel for this Python and builds "
+                 "from source.")
 
     try:
         # pwm=False keeps this to plain on/off per channel: no software PWM to go wrong,
