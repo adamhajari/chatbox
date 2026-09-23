@@ -2,7 +2,7 @@
 audio iterable and a `Speaker`; each device supplies its own mic, speaker and button."""
 
 
-def audio_device_problem() -> str | None:
+def audio_device_problem(input_device=None, output_device=None) -> str | None:
     """A plain-English reason `talkbox talk` can't run here, or None if audio looks usable.
 
     Checked before anything else in `talkbox talk` so a machine with no sound card (a
@@ -34,4 +34,20 @@ def audio_device_problem() -> str | None:
     if not has_out:
         return ("no speaker was found (there is a microphone, but nothing to play through). "
                 "Plug in a speaker, check it with `python -m sounddevice`, and try again.")
+
+    # A name from talkbox.local.toml that matches nothing is the likely mistake here, and
+    # PortAudio's own failure for it surfaces much later as an empty recording.
+    for device, kind in ((input_device, "input"), (output_device, "output")):
+        if device is None:
+            continue
+        try:
+            sd.query_devices(device, kind)
+        except Exception:
+            channels = f"max_{kind}_channels"
+            available = [d["name"] for d in devices if d[channels] > 0]
+            return (f"no {kind} device matches {device!r}, which is set as "
+                    f"{kind}_device in talkbox.toml or talkbox.local.toml.\n"
+                    f"Available {kind}s: {', '.join(repr(n) for n in available) or 'none'}.\n"
+                    f"Names match on any part of the name; remove the setting to use the "
+                    f"system default.")
     return None

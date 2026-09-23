@@ -705,3 +705,38 @@ def test_local_config_keys_outside_a_section_are_an_error(tmp_path):
     with pytest.raises(ConfigError) as e:
         load_settings(tmp_path / "talkbox.toml")
     assert "button_gpio" in str(e.value) and "section" in str(e.value)
+
+
+def test_unknown_device_name_is_named_with_the_alternatives(monkeypatch):
+    """A device name that matches nothing used to surface much later as an empty
+    recording, reported as "tap too short"."""
+    import sounddevice as sd
+
+    from talkbox.audio import audio_device_problem
+
+    monkeypatch.setattr(sd, "query_devices", _devices_or_lookup)
+    problem = audio_device_problem(input_device="No Such Mic")
+    assert problem is not None
+    assert "No Such Mic" in problem and "Built-in Mic" in problem
+
+
+def _devices_or_lookup(device=None, kind=None):
+    """Stands in for sounddevice.query_devices in both its forms."""
+    if device is None:
+        return [{"name": "Built-in Mic", "max_input_channels": 1, "max_output_channels": 0},
+                {"name": "Headphones", "max_input_channels": 0, "max_output_channels": 2}]
+    raise ValueError(f"no {kind} device matching {device!r}")
+
+
+def test_known_device_name_is_accepted(monkeypatch):
+    import sounddevice as sd
+
+    from talkbox.audio import audio_device_problem
+
+    def query(device=None, kind=None):
+        if device is None:
+            return _devices_or_lookup()
+        return {"name": device}
+
+    monkeypatch.setattr(sd, "query_devices", query)
+    assert audio_device_problem(input_device="Built-in Mic") is None

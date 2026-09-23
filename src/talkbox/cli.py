@@ -127,13 +127,14 @@ def cmd_talk(args, settings) -> None:
 
     if not sys.stdin.isatty():
         sys.exit("talkbox talk needs an interactive terminal (it listens for the spacebar)")
-    problem = audio_device_problem()
-    if problem:
-        sys.exit(f"talkbox talk needs a microphone and a speaker, but {problem}\n"
-                 "`talkbox chat` works without them.")
     if settings.speech is None:
         sys.exit("talkbox.toml has no [speech] section (see README: voice setup)")
     sp = settings.speech
+    problem = audio_device_problem(sp.voice.get("input_device"),
+                                   sp.voice.get("output_device"))
+    if problem:
+        sys.exit(f"talkbox talk needs a microphone and a speaker, but {problem}\n"
+                 "`talkbox chat` works without them.")
     path = args.policy or settings.policy_path
     store = PolicyStore(_load_policy_or_exit(path), path)
     policy = store.policy

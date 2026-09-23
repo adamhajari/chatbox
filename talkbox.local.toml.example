@@ -12,7 +12,10 @@
 # button_gpio = 17
 # led_gpio = [22, 23, 24]
 # led_common_anode = true
-# input_device = "USB PnP Sound Device"
+# Audio devices, if the system default is wrong. Use a name from
+# `scripts/mic_check.py` or `python -m sounddevice` on THIS machine -- the names differ
+# per machine, and one that matches nothing stops talkbox talk with an error.
+# input_device = "<a name from the list on this machine>"
 
 # --- a machine that needs a fixed web address ---
 [web]
