@@ -10,6 +10,7 @@ own `talkbox talk` needs both, by design.
     .venv/bin/python scripts/mic_check.py --device 1      # a specific input
     .venv/bin/python scripts/mic_check.py --transcribe    # also send it to speech-to-text
     .venv/bin/python scripts/mic_check.py --save kid.wav  # keep the recording
+    .venv/bin/python scripts/mic_check.py --playback      # play it back (headphones/speaker)
 
 `--transcribe` needs the Google credentials in .env (see docs/pi-setup.md, step 6) and
 costs a fraction of a cent. Recordings are kept only with --save.
@@ -45,6 +46,8 @@ def main() -> None:
     ap.add_argument("--device", help="input device name or number (default: system default)")
     ap.add_argument("--transcribe", action="store_true", help="send it to speech-to-text")
     ap.add_argument("--save", type=Path, help="write the recording to this .wav")
+    ap.add_argument("--playback", action="store_true",
+                    help="play the recording back, to check audio out as well as in")
     args = ap.parse_args()
 
     try:
@@ -112,6 +115,27 @@ def main() -> None:
     else:
         print(f"  Good: comfortably above the RMS {threshold:g} silence threshold, "
               "and not clipping.")
+
+    if args.playback:
+        outputs = [(i, d) for i, d in enumerate(devices) if d["max_output_channels"] > 0]
+        if not outputs:
+            print("\nNo output device, so nothing to play through. Plug in headphones or "
+                  "a speaker.")
+        else:
+            print("\nOutput devices:")
+            for i, d in outputs:
+                print(f"  [{i}] {d['name']}")
+            print("Playing it back…")
+            try:
+                with sd.RawOutputStream(samplerate=RATE, channels=1, dtype="int16") as out:
+                    out.write(pcm)
+            except Exception as e:
+                print(f"  Playback failed ({e}).\n"
+                      "  On the Pi, check the headphone jack is the default output: "
+                      "`sudo raspi-config` → System Options → Audio. Volume: `alsamixer`.")
+            else:
+                print("  If you heard nothing, it's the volume or the wrong output: "
+                      "`alsamixer` (F6 picks the card), or raspi-config as above.")
 
     if args.save:
         with wave.open(str(args.save), "wb") as w:
