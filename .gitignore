@@ -9,3 +9,7 @@ build/
 data/
 *.db
 .DS_Store
+
+# Per-machine settings (device names, GPIO pins): never committed.
+talkbox.local.toml
+*.local.toml

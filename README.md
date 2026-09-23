@@ -68,6 +68,7 @@ To run Talkbox on a Raspberry Pi instead of the laptop, see
 |---|---|
 | `policies/default.yaml` | The parent policy (what it talks about, when, how). |
 | `talkbox.toml` | Runtime settings: provider, answering model, guardrail check models, timeouts, session history, logging, file paths, and the settings page's `[web]` host and port. |
+| `talkbox.local.toml` | Per-machine settings (audio devices, GPIO pins), merged over `talkbox.toml`. Never committed; copy `talkbox.local.toml.example` to start. |
 | `.env` | Secrets (`ANTHROPIC_API_KEY`, and for voice `GOOGLE_APPLICATION_CREDENTIALS`, `GOOGLE_CLOUD_PROJECT`). |
 | `scripts/measure.py` | Times `talkbox chat` end to end, per pipeline step, for comparing machines. |
 | `data/talkbox.db` | SQLite: per-day question counts, the pause switch, plus the exchange log when logging is on. |

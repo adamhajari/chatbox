@@ -1,0 +1,18 @@
+# Per-machine settings, merged over talkbox.toml. Never committed (.gitignore).
+# Copy to talkbox.local.toml and keep only the keys that differ on this machine.
+#
+#     cp talkbox.local.toml.example talkbox.local.toml
+#
+# Sections merge key by key, so setting one value here leaves the rest of that
+# section alone.
+
+# --- Raspberry Pi with the button and status LED (docs/hardware.md) ---
+# [voice]
+# button_gpio = 17
+# led_gpio = [22, 23, 24]
+# led_common_anode = true
+# input_device = "USB PnP Sound Device"
+
+# --- a machine that needs a fixed web address ---
+# [web]
+# host = "192.168.1.20"

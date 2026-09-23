@@ -665,3 +665,30 @@ def test_no_light_is_silent():
     light = NoLight()
     light.show("listening")
     light.close()
+
+
+# ---- per-machine settings (talkbox.local.toml) -------------------------------------
+
+def test_local_config_overrides_only_the_keys_it_names(tmp_path):
+    from talkbox.config import load_settings
+
+    (tmp_path / "talkbox.toml").write_text((ROOT / "talkbox.toml").read_text())
+    (tmp_path / "talkbox.local.toml").write_text(
+        "[voice]\nbutton_gpio = 17\n\n[guardrails.classifier]\ntimeout_seconds = 9\n")
+
+    settings = load_settings(tmp_path / "talkbox.toml")
+    assert settings.speech.voice["button_gpio"] == 17
+    # Sibling keys in the same sections survive.
+    assert settings.speech.voice["sample_rate"] == 16000
+    assert settings.guardrails.classifier.timeout_seconds == 9
+    assert settings.guardrails.classifier.provider_settings["model"] == "claude-haiku-4-5"
+    assert settings.local_config == tmp_path / "talkbox.local.toml"
+
+
+def test_without_a_local_config_nothing_changes(tmp_path):
+    from talkbox.config import load_settings
+
+    (tmp_path / "talkbox.toml").write_text((ROOT / "talkbox.toml").read_text())
+    settings = load_settings(tmp_path / "talkbox.toml")
+    assert settings.local_config is None
+    assert settings.speech.voice.get("button_gpio") is None

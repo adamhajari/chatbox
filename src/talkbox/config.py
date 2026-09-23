@@ -1,4 +1,9 @@
-"""Runtime settings from talkbox.toml (provider, model names, file paths)."""
+"""Runtime settings from talkbox.toml (provider, model names, file paths).
+
+Anything that differs per machine — audio device names, GPIO pins, the web host —
+belongs in `talkbox.local.toml` beside it, which git ignores. It is merged over the
+tracked file section by section, so it only needs the handful of keys that differ.
+"""
 
 from __future__ import annotations
 
@@ -18,6 +23,7 @@ class Settings:
     guardrails: GuardrailSettings
     speech: SpeechSettings | None = None  # None when talkbox.toml has no [speech]
     web: WebSettings = field(default_factory=lambda: WebSettings())  # [web]: parent UI
+    local_config: Path | None = None  # the talkbox.local.toml that was merged in, if any
 
 
 @dataclass(frozen=True)
@@ -73,9 +79,31 @@ def _check(data: dict) -> CheckSettings:
     return CheckSettings(settings, timeout, enabled)
 
 
+def _merge(base: dict, override: dict) -> dict:
+    """`override` wins, but only for the keys it names: a local file that sets one
+    device name must not wipe out the rest of the section it sits in."""
+    merged = dict(base)
+    for key, value in override.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = _merge(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
+
+
+def local_config_path(path: str | Path = "talkbox.toml") -> Path:
+    """talkbox.toml -> talkbox.local.toml, beside it."""
+    return Path(path).with_suffix(".local.toml")
+
+
 def load_settings(path: str | Path = "talkbox.toml") -> Settings:
     path = Path(path).resolve()
     data = tomllib.loads(path.read_text(encoding="utf-8"))
+    local = local_config_path(path)
+    local_used = None
+    if local.exists():
+        data = _merge(data, tomllib.loads(local.read_text(encoding="utf-8")))
+        local_used = local
     base = path.parent
     provider = data["provider"]
     name = provider["name"]
@@ -98,4 +126,5 @@ def load_settings(path: str | Path = "talkbox.toml") -> Settings:
             host=str(data.get("web", {}).get("host", "auto")),
             port=int(data.get("web", {}).get("port", 8321)),
         ),
+        local_config=local_used,
     )

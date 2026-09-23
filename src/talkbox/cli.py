@@ -41,6 +41,12 @@ def _start_web(args, settings, store: PolicyStore, counter, controls, log):
     return server
 
 
+def _note_local_config(settings) -> None:
+    """A silent override is a debugging trap, so say when one is in effect."""
+    if settings.local_config is not None:
+        print(f"Settings: {settings.local_config.name} is layered over talkbox.toml.")
+
+
 def _open_db(args, settings):
     db = args.db or settings.database_path
     counter, controls = DailyCounter(db), Controls(db)
@@ -66,6 +72,7 @@ def cmd_chat(args, settings) -> None:
     print(f"Guardrails: classifier {g.classifier.provider_settings['model']}, "
           f"output check {g.output_check.provider_settings['model'] if g.output_check.enabled else 'OFF'}")
     print(f"Logging is {'on' if log else 'off'}. Follow-ups remember this session only.")
+    _note_local_config(settings)
     print("Type a question. 'new' starts a fresh session. Ctrl-D or 'quit' to exit.\n")
     try:
         while True:
@@ -162,6 +169,7 @@ def cmd_talk(args, settings) -> None:
           f"Output check {'on' if g.output_check.enabled else 'OFF'}. "
           f"Logging is {'on' if log else 'off'}; no audio is stored.")
     print("Let go to send. 'n' starts a fresh session, 'q' quits.")
+    _note_local_config(settings)
     try:
         with Keyboard() as kb:
             sources = [KeyboardPress(kb, ptt_settings.key_repeat_wait_seconds,
