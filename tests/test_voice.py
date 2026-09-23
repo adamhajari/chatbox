@@ -433,3 +433,113 @@ def test_no_sound_card_at_all_is_reported_plainly(monkeypatch):
 def test_working_devices_report_no_problem(monkeypatch):
     devices = [{"max_input_channels": 1, "max_output_channels": 2}]
     assert _problem(monkeypatch, lambda: devices) is None
+
+
+# ---- push-to-talk sources: spacebar or button (PLAN.md D5) -------------------------
+
+class FakeButton:
+    def __init__(self, pressed=False):
+        self.is_pressed = pressed
+        self.closed = False
+
+    def close(self):
+        self.closed = True
+
+
+class FakePress:
+    """A press source that answers from a script, for testing AnyPress."""
+
+    def __init__(self, name, commands=()):
+        self.name = name
+        self.commands = list(commands)
+        self.begun = self.flushed = 0
+        self.confirmed = True
+
+    def poll_command(self, timeout):
+        return self.commands.pop(0) if self.commands else None
+
+    def begin(self):
+        self.begun += 1
+
+    def poll_hold(self, timeout):
+        pass
+
+    def held(self, now):
+        return False
+
+    def flush(self):
+        self.flushed += 1
+
+
+def test_button_reports_talk_only_while_pressed():
+    from talkbox.audio.pi import ButtonPress
+
+    button = FakeButton(pressed=False)
+    press = ButtonPress(button=button)
+    assert press.poll_command(0.0) is None
+    assert press.held(time.monotonic()) is False
+
+    button.is_pressed = True
+    assert press.poll_command(0.0) == "talk"
+    assert press.held(time.monotonic()) is True
+    # A physical press needs no repeat heuristic: it counts straight away.
+    assert press.confirmed is True
+
+
+def test_button_flush_waits_for_release_but_gives_up():
+    from talkbox.audio.pi import ButtonPress
+
+    press = ButtonPress(button=FakeButton(pressed=True))
+    started = time.monotonic()
+    press.flush(timeout=0.1)          # still held: returns once the timeout passes
+    assert 0.05 < time.monotonic() - started < 1.0
+
+
+def test_any_press_takes_whichever_source_fires():
+    from talkbox.audio.press import AnyPress
+
+    keyboard, button = FakePress("SPACE"), FakePress("the button", ["talk"])
+    press = AnyPress([keyboard, button], poll_seconds=0.0)
+    assert press.poll_command(None) == "talk"
+    assert press.active is button
+
+    # The turn belongs to the source that started it, not the other one.
+    press.begin()
+    assert button.begun == 1 and keyboard.begun == 0
+
+
+def test_any_press_flushes_every_source():
+    from talkbox.audio.press import AnyPress
+
+    keyboard, button = FakePress("SPACE"), FakePress("the button")
+    press = AnyPress([keyboard, button], poll_seconds=0.0)
+    press.flush()
+    assert keyboard.flushed == 1 and button.flushed == 1
+
+
+def test_any_press_names_both_sources():
+    from talkbox.audio.press import AnyPress
+
+    press = AnyPress([FakePress("SPACE"), FakePress("the button")])
+    assert press.name == "SPACE or the button"
+
+
+def test_keyboard_press_reads_commands():
+    from talkbox.audio.laptop import KeyboardPress
+
+    class FakeKeyboard:
+        def __init__(self, keys):
+            self.keys = list(keys)
+            self.flushed = 0
+
+        def read(self, timeout):
+            return self.keys.pop(0) if self.keys else None
+
+        def flush(self):
+            self.flushed += 1
+
+    press = KeyboardPress(FakeKeyboard([" ", "n", "q", ""]), 0.6, 0.2)
+    assert press.poll_command(0.0) == "talk"
+    assert press.poll_command(0.0) == "new"
+    assert press.poll_command(0.0) == "quit"
+    assert press.poll_command(0.0) is None

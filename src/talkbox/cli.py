@@ -110,7 +110,9 @@ def cmd_talk(args, settings) -> None:
     from dataclasses import fields
 
     from talkbox.audio import audio_device_problem
-    from talkbox.audio.laptop import Keyboard, LaptopPushToTalk, LaptopSpeaker, PushToTalkSettings
+    from talkbox.audio.laptop import (Keyboard, KeyboardPress, LaptopSpeaker, PushToTalkMic,
+                                      PushToTalkSettings)
+    from talkbox.audio.press import AnyPress
     from talkbox.pipeline import build_pipeline
     from talkbox.speech import make_stt, make_tts
     from talkbox.voice import VoiceSettings, VoiceTurn
@@ -145,12 +147,23 @@ def cmd_talk(args, settings) -> None:
     print(f"Speech: {stt.name}/{stt.model} → text → {tts.name}/{tts.voice}. "
           f"Output check {'on' if g.output_check.enabled else 'OFF'}. "
           f"Logging is {'on' if log else 'off'}; no audio is stored.")
-    print("Hold SPACE and talk; let go to send. 'n' starts a fresh session, 'q' quits.\n")
+    print("Let go to send. 'n' starts a fresh session, 'q' quits.")
     try:
         with Keyboard() as kb:
-            mic = LaptopPushToTalk(kb, speaker, ptt_settings)
+            sources = [KeyboardPress(kb, ptt_settings.key_repeat_wait_seconds,
+                                     ptt_settings.release_gap_seconds)]
+            if ptt_settings.button_gpio is not None:
+                from talkbox.audio.pi import ButtonPress
+
+                try:
+                    sources.append(ButtonPress(ptt_settings.button_gpio))
+                except RuntimeError as e:
+                    sys.exit(f"Button: {e}")
+            press = AnyPress(sources)
+            mic = PushToTalkMic(press, speaker, ptt_settings)
+            print(f"Hold {press.name} and talk.\n")
             while True:
-                command = kb.wait_command()
+                command = press.poll_command(None)
                 if command == "quit":
                     break
                 if command == "new":
@@ -168,7 +181,7 @@ def cmd_talk(args, settings) -> None:
                 if args.verbose:
                     _print_steps(result.steps)
                 print()
-                kb.flush()
+                press.flush()
     except KeyboardInterrupt:
         print()
     finally:

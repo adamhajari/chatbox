@@ -97,6 +97,9 @@ sample_rate = 16000
 # Spacebar release detection (the terminal only sees key repeats; see README).
 key_repeat_wait_seconds = 0.6
 release_gap_seconds = 0.2
+# The Pi's arcade button as push-to-talk, alongside the spacebar (docs/hardware.md).
+# Uncomment on the Pi; on the laptop leave it off and use SPACE.
+# button_gpio = 17
 # Audio devices by name or number (python -m sounddevice lists them); omit for defaults.
 # input_device = "MacBook Pro Microphone"
 # output_device = "MacBook Pro Speakers"

@@ -35,6 +35,8 @@ class PushToTalkSettings:
     release_gap_seconds: float = 0.2
     input_device: str | int | None = None   # None = system default
     output_device: str | int | None = None
+    # GPIO pin of the Pi's arcade button (docs/hardware.md). None = spacebar only.
+    button_gpio: int | None = None
 
 
 class HoldDetector:
@@ -95,6 +97,49 @@ class Keyboard:
                 return "talk"
 
 
+class KeyboardPress:
+    """The spacebar as a push-to-talk source (PLAN.md D5, laptop side).
+
+    A terminal reports presses but never releases, so "still held" means auto-repeats
+    keep arriving and "released" means they stopped. A press with no repeat at all is a
+    tap and sends nothing.
+    """
+
+    name = "SPACE"
+
+    def __init__(self, keyboard: Keyboard, repeat_wait: float, release_gap: float) -> None:
+        self.keyboard = keyboard
+        self.repeat_wait, self.release_gap = repeat_wait, release_gap
+        self._hold = HoldDetector(repeat_wait, release_gap, time.monotonic())
+
+    def poll_command(self, timeout: float) -> Literal["talk", "new", "quit"] | None:
+        keys = (self.keyboard.read(timeout) or "").lower()
+        if "q" in keys or "\x04" in keys:
+            return "quit"
+        if "n" in keys:
+            return "new"
+        if " " in keys:
+            return "talk"
+        return None
+
+    def begin(self) -> None:
+        self._hold = HoldDetector(self.repeat_wait, self.release_gap, time.monotonic())
+
+    def poll_hold(self, timeout: float) -> None:
+        if " " in (self.keyboard.read(timeout) or ""):
+            self._hold.key(time.monotonic())
+
+    def held(self, now: float) -> bool:
+        return not self._hold.released(now)
+
+    @property
+    def confirmed(self) -> bool:
+        return self._hold.confirmed
+
+    def flush(self) -> None:
+        self.keyboard.flush()
+
+
 class LaptopSpeaker:
     def __init__(self, device: str | int | None = None, cue_rate: int = 24_000) -> None:
         import sounddevice as sd
@@ -119,18 +164,24 @@ class LaptopSpeaker:
         self._write(audio, sample_rate)
 
 
-class LaptopPushToTalk:
-    def __init__(self, keyboard: Keyboard, speaker: LaptopSpeaker,
+class PushToTalkMic:
+    """Records through sounddevice/PortAudio while a `Press` is held.
+
+    Used on the laptop and on the Pi: PortAudio behaves the same on both, and which
+    thing is being held is the `Press`'s problem, not this class's.
+    """
+
+    def __init__(self, press, speaker: LaptopSpeaker,
                  settings: PushToTalkSettings = PushToTalkSettings()) -> None:
         import sounddevice as sd
 
-        self._sd, self.keyboard, self.speaker, self.settings = sd, keyboard, speaker, settings
+        self._sd, self.press, self.speaker, self.settings = sd, press, speaker, settings
 
     def record(self) -> Iterator[bytes]:
-        """Call right after the first space press. Yields PCM while the key is held;
-        yields nothing at all for a tap."""
+        """Call right after a press is reported. Yields PCM while it's held; yields
+        nothing at all for a tap."""
         s = self.settings
-        hold = HoldDetector(s.key_repeat_wait_seconds, s.release_gap_seconds, time.monotonic())
+        self.press.begin()
         # Cue first, then open the mic, so the beep isn't recorded.
         self.speaker.cue("listening", wait=True)
         chunks: queue.Queue[bytes] = queue.Queue()
@@ -141,18 +192,16 @@ class LaptopPushToTalk:
         started = time.monotonic()
         with stream:
             while True:
-                keys = self.keyboard.read(0.02)
+                self.press.poll_hold(0.02)
                 now = time.monotonic()
-                if keys and " " in keys:
-                    hold.key(now)
-                if hold.released(now) or now - started > s.max_seconds:
+                if not self.press.held(now) or now - started > s.max_seconds:
                     break
                 while not chunks.empty():
                     held.append(chunks.get_nowait())
-                if hold.confirmed and held:
+                if self.press.confirmed and held:
                     yield from held
                     held.clear()
-        if hold.confirmed:
+        if self.press.confirmed:
             self.speaker.cue("stopped")
             yield from held
             while not chunks.empty():
