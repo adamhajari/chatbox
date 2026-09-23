@@ -13,6 +13,10 @@ dependencies = [
     "google-cloud-speech>=2.33",
     "google-cloud-texttospeech>=2.29",
     "sounddevice>=0.5",
+    # The picture screen (Phase 7). MIT-CMU. The display driver itself is Pi-only and
+    # installed there by hand (docs/hardware.md), but decoding and scaling a picture
+    # happens wherever the screen is enabled.
+    "pillow>=10",
     # Parent web UI (Phase 4). MIT / BSD-3-Clause.
     "fastapi>=0.115",
     "uvicorn>=0.30",
@@ -33,4 +37,4 @@ packages = ["src/talkbox"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-markers = ["live: calls the real model API (skipped without ANTHROPIC_API_KEY)"]
+markers = ["live: calls a real service -- the model API (skipped without ANTHROPIC_API_KEY) or Wikipedia"]

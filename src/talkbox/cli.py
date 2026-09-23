@@ -161,6 +161,11 @@ def cmd_talk(args, settings) -> None:
             sys.exit(f"Status light: {e}")
     # The light rides on the speaker, so the voice turn stays free of hardware.
     speaker = LitSpeaker(speaker, light)
+    show = _start_screen(settings, pipeline)
+    if show is not None:
+        from talkbox.audio.picture import PicturedSpeaker
+
+        speaker = PicturedSpeaker(speaker, show)
     turn = VoiceTurn(pipeline, stt, tts, speaker, voice_settings)
     g = settings.guardrails
     web = _start_web(args, settings, store, counter, controls, log)
@@ -203,6 +208,9 @@ def cmd_talk(args, settings) -> None:
                     print(f"{pipeline.policy.persona.name}> {result.spoken}")
                 if args.verbose:
                     _print_steps(result.steps)
+                    if show is not None and show.last is not None:
+                        print(f"   · screen: {show.last.title or show.last.subject} "
+                              f"({show.last.source})")
                 print()
                 press.flush()
     except KeyboardInterrupt:
@@ -215,6 +223,34 @@ def cmd_talk(args, settings) -> None:
         controls.close()
         if log:
             log.close()
+
+
+def _start_screen(settings, pipeline):
+    """The picture screen (PLAN.md D28), or None when there isn't one.
+
+    Two wrappers and no change to the voice turn or the pipeline: the classifier is
+    wrapped so the subject it already reports starts the lookup, and the speaker is
+    wrapped so the picture goes up with the answer and comes down with it.
+    """
+    screen = settings.screen
+    if screen is None:
+        return None
+    from talkbox.audio.pi import Screen
+    from talkbox.audio.picture import PictureShow, WatchingClassifier
+    from talkbox.pictures import PictureFinder
+
+    try:
+        display = Screen(screen.dc_gpio, screen.reset_gpio, screen.cs,
+                         screen.baudrate, screen.rotation,
+                         screen.backlight_gpio, screen.backlight_active_high)
+    except RuntimeError as e:
+        sys.exit(f"Screen: {e}")
+    cache = screen.cache_dir or settings.database_path.parent / "pictures"
+    show = PictureShow(display, PictureFinder(cache, screen.timeout_seconds))
+    pipeline.classifier = WatchingClassifier(pipeline.classifier, show)
+    print(f"Screen: on, pictures cached in {cache}. "
+          "Nothing checks a picture before it is shown (PLAN.md D29).")
+    return show
 
 
 def cmd_check_policy(args, settings) -> None:

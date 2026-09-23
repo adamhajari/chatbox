@@ -17,6 +17,16 @@
 # per machine, and one that matches nothing stops talkbox talk with an error.
 # input_device = "<a name from the list on this machine>"
 
+# --- the Pi's picture screen (docs/hardware.md) ---
+# Only the Pi has one, so this is the machine that turns it on. Everything else in
+# [screen] has a sensible default in talkbox.toml.
+[screen]
+# enabled = true
+# timeout_seconds = 3
+# The backlight pin, if it's on a GPIO rather than 3V3 (docs/hardware.md).
+# backlight_gpio = 12
+# backlight_active_high = true
+
 # --- a machine that needs a fixed web address ---
 [web]
 # host = "192.168.1.20"

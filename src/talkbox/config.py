@@ -22,6 +22,7 @@ class Settings:
     max_history_exchanges: int
     guardrails: GuardrailSettings
     speech: SpeechSettings | None = None  # None when talkbox.toml has no [speech]
+    screen: ScreenSettings | None = None  # None = no screen; nothing else to check
     web: WebSettings = field(default_factory=lambda: WebSettings())  # [web]: parent UI
     local_config: Path | None = None  # the talkbox.local.toml that was merged in, if any
 
@@ -48,6 +49,23 @@ class GuardrailSettings:
 
 
 @dataclass(frozen=True)
+class ScreenSettings:
+    """The picture screen (PLAN.md D28). Absent or `enabled = false` means no screen."""
+
+    dc_gpio: int = 25            # data/command pin
+    reset_gpio: int = 27
+    cs: int = 0                  # SPI0 chip select: 0 = CE0 (GPIO8), 1 = CE1 (GPIO7)
+    baudrate: int = 24_000_000
+    rotation: int = 0
+    # The backlight on a GPIO, so a blank screen is genuinely dark. None = wired to
+    # 3V3 and always on. `active_high` is False for a P-MOSFET high-side switch.
+    backlight_gpio: int | None = None
+    backlight_active_high: bool = True
+    timeout_seconds: float = 3.0  # hard ceiling on a lookup; speech never waits for it
+    cache_dir: Path | None = None  # None = "pictures" beside the database
+
+
+@dataclass(frozen=True)
 class SpeechSettings:
     stt_name: str
     stt_settings: dict    # passed to the speech-to-text class
@@ -68,6 +86,31 @@ def _speech(data: dict) -> SpeechSettings | None:
         tts_name=tts["name"],
         tts_settings={"language": language, **tts.get(tts["name"], {})},
         voice=dict(data.get("voice", {})),
+    )
+
+
+def _screen(data: dict, base: Path) -> ScreenSettings | None:
+    """[screen] in talkbox.toml (the Pi's values belong in talkbox.local.toml).
+
+    No section, or `enabled = false`, means no screen at all: nothing is imported,
+    nothing is fetched and no pin is opened.
+    """
+    if "screen" not in data:
+        return None
+    sc = dict(data["screen"])
+    if not bool(sc.pop("enabled", False)):
+        return None
+    cache = sc.get("cache_dir")
+    return ScreenSettings(
+        dc_gpio=int(sc.get("dc_gpio", 25)),
+        reset_gpio=int(sc.get("reset_gpio", 27)),
+        cs=int(sc.get("cs", 0)),
+        baudrate=int(sc.get("baudrate", 24_000_000)),
+        rotation=int(sc.get("rotation", 0)),
+        backlight_gpio=None if sc.get("backlight_gpio") is None else int(sc["backlight_gpio"]),
+        backlight_active_high=bool(sc.get("backlight_active_high", True)),
+        timeout_seconds=float(sc.get("timeout_seconds", 3.0)),
+        cache_dir=base / cache if cache else None,
     )
 
 
@@ -94,7 +137,7 @@ def _merge(base: dict, override: dict) -> dict:
 # Every section talkbox.toml understands. A key outside one of these does nothing, and
 # the most likely reason is a [section] header left commented out.
 _SECTIONS = frozenset({"paths", "web", "chat", "logging", "provider", "guardrails",
-                       "speech", "voice"})
+                       "speech", "voice", "screen"})
 
 
 class ConfigError(Exception):
@@ -143,6 +186,7 @@ def load_settings(path: str | Path = "talkbox.toml") -> Settings:
             output_check=_check(g["output_check"]),
         ),
         speech=_speech(data),
+        screen=_screen(data, base),
         web=WebSettings(
             host=str(data.get("web", {}).get("host", "auto")),
             port=int(data.get("web", {}).get("port", 8321)),

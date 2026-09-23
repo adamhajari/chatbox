@@ -103,3 +103,38 @@ release_gap_seconds = 0.2
 # Audio devices by name or number (python -m sounddevice lists them); omit for defaults.
 # input_device = "MacBook Pro Microphone"
 # output_device = "MacBook Pro Speakers"
+
+# The picture screen: a 2.2" SPI display (ILI9341, 240x320) showing a picture of what
+# was asked about while Talkbox speaks (PLAN.md D28/D29, docs/hardware.md). Pictures
+# only, never text. The subject comes from the guardrail classifier, and the picture is
+# the Wikipedia article's lead image for it.
+#
+# Only the Pi has a screen, so turn it on in talkbox.local.toml, not here. The values
+# below are the defaults and are documented rather than set:
+#
+#     [screen]
+#     enabled = true
+#
+[screen]
+# false (or no [screen] section at all) means no screen: nothing is imported, no pin is
+# opened and no picture is ever fetched.
+enabled = false
+# D/C and RESET. SPI0 supplies CS/SCK/MOSI on GPIO8/11/10; cs = 1 uses CE1 (GPIO7).
+dc_gpio = 25
+reset_gpio = 27
+cs = 0
+# SPI clock. Drop to 16000000 if the picture comes up with noise or torn lines.
+baudrate = 24000000
+# 0, 90, 180 or 270, if the display ends up mounted the other way up.
+rotation = 0
+# The backlight on a GPIO, so that a blank screen is genuinely dark rather than a lit
+# grey rectangle. Unset means the display's LED pin is wired to 3V3 and always on.
+# backlight_active_high = false for a P-MOSFET high-side switch (GPIO low = lit).
+# backlight_gpio = 12
+backlight_active_high = true
+# Hard ceiling on looking a picture up. Speech NEVER waits for this (PLAN.md D4): a
+# picture that isn't ready when the answer starts appears late or not at all.
+timeout_seconds = 3
+# Where fetched pictures are cached, relative to this file. Unset = "pictures" beside
+# the database. Cached subjects are never fetched again.
+# cache_dir = "data/pictures"
