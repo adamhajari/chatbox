@@ -158,7 +158,7 @@ def test_a_subject_becomes_a_sized_picture(finder):
     f = finder()
     picture = f.find("octopus")
     assert picture is not None
-    assert picture.image.size == (240, 320) and picture.title == "Octopus"
+    assert picture.image.size == (320, 240) and picture.title == "Octopus"
     assert "gsrsearch=octopus" in f.http.calls[0] and "pageimages" in f.http.calls[0]
 
 
@@ -214,10 +214,48 @@ def test_a_corrupt_cache_file_just_refetches(finder):
 
 
 def test_fit_keeps_the_shape_and_fills_the_screen():
+    """The screen is landscape, 320x240 (the panel is 240x320 glass turned 90)."""
     wide = fit(Image.new("RGB", (800, 100), (255, 0, 0)))
-    assert wide.size == (240, 320)
-    assert wide.getpixel((120, 0)) == (0, 0, 0)        # letterboxed, not stretched
-    assert wide.getpixel((120, 160)) == (255, 0, 0)
+    assert wide.size == (320, 240)
+    assert wide.getpixel((160, 0)) == (0, 0, 0)        # letterboxed, not stretched
+    assert wide.getpixel((160, 120)) == (255, 0, 0)
+
+    tall = fit(Image.new("RGB", (100, 800), (0, 255, 0)))
+    assert tall.size == (320, 240)
+    assert tall.getpixel((0, 120)) == (0, 0, 0)
+    assert tall.getpixel((160, 120)) == (0, 255, 0)
+
+
+@pytest.mark.parametrize("rotation,size", [(0, (240, 320)), (90, (320, 240)),
+                                           (180, (240, 320)), (270, (320, 240))])
+def test_the_screens_picture_size_follows_its_rotation(rotation, size):
+    from talkbox.audio.pi import Screen, image_size
+
+    assert image_size(rotation) == size
+    assert Screen(rotation=rotation, display=object()).size == size
+
+
+def test_a_picture_of_the_wrong_shape_is_refitted_rather_than_silently_dropped():
+    """The driver refuses a mismatched image and show() swallows it, so a rotation the
+    finder didn't know about would be an invisible failure."""
+    from talkbox.audio.pi import Screen
+
+    class Panel:
+        def __init__(self):
+            self.images = []
+
+        def image(self, img):
+            if img.size != (320, 240):
+                raise ValueError("Image must be same dimensions as display")
+            self.images.append(img)
+
+        def fill(self, colour):
+            pass
+
+    panel = Panel()
+    screen = Screen(rotation=90, display=panel)
+    screen.show(Image.new("RGB", (240, 320), (1, 2, 3)))   # portrait, the wrong way up
+    assert panel.images and panel.images[0].size == (320, 240)
 
 
 def test_the_api_query_asks_for_the_articles_lead_image(monkeypatch):
@@ -501,7 +539,7 @@ def test_the_pi_screen_adapter_swallows_display_failures():
 
     panel = Panel()
     screen = Screen(display=panel)
-    image = Image.new("RGB", (240, 320))
+    image = Image.new("RGB", (320, 240))
     screen.show(image)
     assert panel.images == [image]
     screen.blank()
@@ -564,7 +602,7 @@ def screen_with_backlight(fail=False, panel=None):
 def test_the_backlight_lights_with_the_picture_and_goes_out_with_it():
     screen, backlight = screen_with_backlight()
     assert backlight.history == []          # starts off: dark until there is something
-    screen.show(Image.new("RGB", (240, 320)))
+    screen.show(Image.new("RGB", (320, 240)))
     assert backlight.history == [True]
     screen.blank()
     # Off before the panel is filled, so the picture never flashes black on the way out.
@@ -580,20 +618,20 @@ def test_a_picture_that_never_reached_the_panel_does_not_light_the_backlight():
             pass
 
     screen, backlight = screen_with_backlight(panel=Dead())
-    screen.show(Image.new("RGB", (240, 320)))
+    screen.show(Image.new("RGB", (320, 240)))
     assert backlight.history == []      # nothing was drawn, so nothing is lit
 
 
 def test_closing_darkens_the_backlight_and_releases_the_pin():
     screen, backlight = screen_with_backlight()
-    screen.show(Image.new("RGB", (240, 320)))
+    screen.show(Image.new("RGB", (320, 240)))
     screen.close()
     assert backlight.history[-1] is False and backlight.closed
 
 
 def test_a_backlight_that_fails_never_breaks_a_turn():
     screen, _ = screen_with_backlight(fail=True)
-    screen.show(Image.new("RGB", (240, 320)))   # the panel still has the picture on it
+    screen.show(Image.new("RGB", (320, 240)))   # the panel still has the picture on it
     screen.blank()
     screen.close()
 
@@ -613,7 +651,7 @@ def test_without_a_backlight_pin_nothing_changes():
 
     panel = Panel()
     screen = Screen(display=panel)
-    screen.show(Image.new("RGB", (240, 320)))
+    screen.show(Image.new("RGB", (320, 240)))
     screen.blank()
     assert panel.images and panel.filled == 1
 
@@ -664,6 +702,7 @@ def test_a_local_file_turns_the_screen_on(tmp_path):
     assert screen is not None
     assert screen.timeout_seconds == 2
     assert (screen.dc_gpio, screen.reset_gpio, screen.cs) == (25, 27, 0)  # from talkbox.toml
+    assert screen.rotation == 90   # landscape
     assert screen.cache_dir is None
 
 
@@ -679,7 +718,7 @@ def test_a_real_subject_really_fetches_a_picture(tmp_path):
     """
     picture = PictureFinder(tmp_path, 8.0).find("octopus")
     assert picture is not None, "no picture for 'octopus': check USER_AGENT and the network"
-    assert picture.title == "Octopus" and picture.image.size == (240, 320)
+    assert picture.title == "Octopus" and picture.image.size == (320, 240)
 
 
 @pytest.mark.live

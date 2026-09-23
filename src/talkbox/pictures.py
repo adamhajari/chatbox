@@ -47,9 +47,11 @@ API = "https://en.wikipedia.org/w/api.php"
 USER_AGENT = ("Talkbox/0.1 (a family voice assistant for two children; "
               "https://www.mediawiki.org/wiki/API:Etiquette)")
 
-# The screen, portrait. Thumbnails are requested a little larger than the panel and
-# scaled down here, so a wide image still fills the width.
-SCREEN = (240, 320)
+# The screen as Talkbox mounts it: landscape, 320 wide by 240 tall (the panel is
+# 240x320 glass turned 90 degrees). A photograph of a thing is usually wider than it is
+# tall, so portrait would letterbox most lead images heavily. Thumbnails are requested
+# a little larger than the panel and scaled down here, so a wide image fills the width.
+SCREEN = (320, 240)
 
 # A subject is a noun phrase from the classifier, but it becomes a URL and a filename,
 # so it gets treated as untrusted text at both.
@@ -154,8 +156,17 @@ class PictureFinder:
     # costs one lookup per subject for the life of the cache, not one per asking.
 
     def _paths(self, subject: str) -> tuple[Path, Path]:
+        """(picture, miss) for this subject.
+
+        The picture carries the screen's size in its name, because a cached picture is
+        already scaled and letterboxed: turning the panel from portrait to landscape
+        would otherwise hand back the old shape to be letterboxed a second time. The
+        miss file doesn't -- whether an article has a lead image has nothing to do with
+        how the screen is mounted.
+        """
         name = _cache_name(subject)
-        return self.cache_dir / f"{name}.png", self.cache_dir / f"{name}.none"
+        width, height = self.size
+        return self.cache_dir / f"{name}-{width}x{height}.png", self.cache_dir / f"{name}.none"
 
     def _cached(self, subject: str) -> Picture | None | str:
         """A `Picture`, the string "none" for a cached miss, or None for no entry."""

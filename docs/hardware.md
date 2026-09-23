@@ -169,8 +169,12 @@ Eight wires to the Pi (VCC, GND, CS, SCK, MOSI, D/C, RESET, LED), and **MISO lef
 If the current measurement says the backlight needs the P-MOSFET, that goes in the LED
 wire and is the one part of the screen that does need soldering. Keep them
 short — long SPI leads are the usual cause of a noisy picture at 24 MHz. The panel is
-mounted portrait, 240 wide by 320 tall; if it ends up the other way up in the enclosure,
-set `rotation` in `talkbox.local.toml` rather than rewiring.
+mounted **landscape**, 320 wide by 240 tall (`rotation = 90`), because a photograph of a
+thing is usually wider than it is tall and a portrait panel letterboxes most lead images
+heavily. If it ends up the other way round in the enclosure, set `rotation` in
+`talkbox.local.toml` rather than rewiring — 90 and 270 are landscape, 0 and 180 portrait.
+Pictures are sized to match, and the cache is keyed by that size, so changing it refetches
+rather than stretching what is already there.
 
 ---
 

@@ -125,8 +125,11 @@ reset_gpio = 27
 cs = 0
 # SPI clock. Drop to 16000000 if the picture comes up with noise or torn lines.
 baudrate = 24000000
-# 0, 90, 180 or 270, if the display ends up mounted the other way up.
-rotation = 0
+# Which way up the panel is mounted. 90 and 270 are landscape (320x240), which is what
+# Talkbox uses: a photograph of a thing is usually wider than it is tall, so a portrait
+# panel letterboxes most pictures heavily. 0 and 180 are portrait (240x320).
+# Pictures are sized to match, so changing this changes their shape too.
+rotation = 90
 # The backlight on a GPIO, so that a blank screen is genuinely dark rather than a lit
 # grey rectangle. Unset means the display's LED pin is wired to 3V3 and always on.
 # backlight_active_high = false for a P-MOSFET high-side switch (GPIO low = lit).

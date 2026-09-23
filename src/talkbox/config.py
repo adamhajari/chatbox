@@ -56,7 +56,7 @@ class ScreenSettings:
     reset_gpio: int = 27
     cs: int = 0                  # SPI0 chip select: 0 = CE0 (GPIO8), 1 = CE1 (GPIO7)
     baudrate: int = 24_000_000
-    rotation: int = 0
+    rotation: int = 90   # 90/270 = landscape (the default), 0/180 = portrait
     # The backlight on a GPIO, so a blank screen is genuinely dark. None = wired to
     # 3V3 and always on. `active_high` is False for a P-MOSFET high-side switch.
     backlight_gpio: int | None = None
@@ -106,7 +106,7 @@ def _screen(data: dict, base: Path) -> ScreenSettings | None:
         reset_gpio=int(sc.get("reset_gpio", 27)),
         cs=int(sc.get("cs", 0)),
         baudrate=int(sc.get("baudrate", 24_000_000)),
-        rotation=int(sc.get("rotation", 0)),
+        rotation=int(sc.get("rotation", 90)),
         backlight_gpio=None if sc.get("backlight_gpio") is None else int(sc["backlight_gpio"]),
         backlight_active_high=bool(sc.get("backlight_active_high", True)),
         timeout_seconds=float(sc.get("timeout_seconds", 3.0)),

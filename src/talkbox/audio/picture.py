@@ -2,6 +2,7 @@
 
 Pictures only, never text -- neither kid reads fluently. The screen supplements the
 spoken answer and is never needed to understand it, so every failure here is silent.
+The panel is mounted landscape (320x240), which is the shape most lead images are.
 
 Built the same way as `talkbox.audio.light`: two wrappers around things the turn
 already uses, so `talkbox/voice.py` and the pipeline stay free of hardware.

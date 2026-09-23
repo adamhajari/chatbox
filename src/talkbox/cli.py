@@ -246,7 +246,10 @@ def _start_screen(settings, pipeline):
     except RuntimeError as e:
         sys.exit(f"Screen: {e}")
     cache = screen.cache_dir or settings.database_path.parent / "pictures"
-    show = PictureShow(display, PictureFinder(cache, screen.timeout_seconds))
+    # The finder sizes pictures for this screen as mounted, so a rotated panel gets
+    # landscape images rather than portrait ones it would have to refuse.
+    finder = PictureFinder(cache, screen.timeout_seconds, display.size)
+    show = PictureShow(display, finder)
     pipeline.classifier = WatchingClassifier(pipeline.classifier, show)
     print(f"Screen: on, pictures cached in {cache}. "
           "Nothing checks a picture before it is shown (PLAN.md D29).")

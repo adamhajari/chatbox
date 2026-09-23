@@ -301,6 +301,9 @@ classifier (already running) ─▶ subject ─▶ Wikipedia article's lead imag
   question, so there is no extra model call and no extra latency. `Classification.subject`
   is the concrete thing the question is about (`"octopus"`, `"the Moon"`), or `None`
   where there isn't one ("why do we have to sleep?"). It never affects a decision.
+- **Landscape, 320x240.** The panel is 240x320 glass turned 90 degrees (`[screen]
+  rotation`), because a photograph of a thing is usually wider than it is tall.
+  Pictures are letterboxed to that shape on black, never stretched.
 - **The picture is the Wikipedia article's lead image** for that subject — not a
   Wikimedia Commons free-text image search, which ranks every file anyone has ever
   uploaded against a word. One API request per subject, then a disk cache, including a

@@ -32,7 +32,8 @@ import argparse
 import sys
 import time
 
-WIDTH, HEIGHT = 240, 320
+# The panel's own glass, which rotation never changes.
+PANEL_WIDTH, PANEL_HEIGHT = 240, 320
 
 # Step 1: solid colours, named as they come up. Wrong colours mean the panel is
 # talking, which is most of what this script is for.
@@ -65,7 +66,8 @@ What each failure looks like:
                                       --baudrate 16000000, and keep leads short.
   the picture is upside down or        the panel is mounted the other way up: find the
   sideways                            --rotation that looks right and put it in
-                                      talkbox.local.toml.
+                                      talkbox.local.toml. 90 and 270 are landscape,
+                                      0 and 180 portrait.
   a white flash then nothing          RESET is floating: check GPIO27.
   backlight won't go dark             wrong polarity: try --backlight-active-low.
   backlight won't come back on        the GPIO can't supply the backlight current;
@@ -80,7 +82,8 @@ def main() -> None:
     ap.add_argument("--reset", type=int, default=27, help="RESET pin (GPIO)")
     ap.add_argument("--cs", type=int, choices=(0, 1), default=0, help="SPI0 chip select")
     ap.add_argument("--baudrate", type=int, default=24_000_000)
-    ap.add_argument("--rotation", type=int, choices=(0, 90, 180, 270), default=0)
+    ap.add_argument("--rotation", type=int, choices=(0, 90, 180, 270), default=90,
+                    help="90/270 = landscape (Talkbox's default), 0/180 = portrait")
     ap.add_argument("--backlight", type=int, metavar="GPIO",
                     help="the backlight's GPIO pin, if it isn't wired to 3V3")
     ap.add_argument("--backlight-active-low", action="store_true",
@@ -105,11 +108,17 @@ def main() -> None:
     def pin(number: int):
         return digitalio.DigitalInOut(getattr(board, f"D{number}"))
 
+    # The constructor always gets the panel's own dimensions; the images have to be
+    # the rotated shape, which is the other way round at 90 and 270.
+    WIDTH, HEIGHT = ((PANEL_HEIGHT, PANEL_WIDTH) if args.rotation % 180 == 90
+                     else (PANEL_WIDTH, PANEL_HEIGHT))
+
     try:
         spi = busio.SPI(clock=board.SCK, MOSI=board.MOSI)
         display = ili9341.ILI9341(
             spi, cs=pin(8 if args.cs == 0 else 7), dc=pin(args.dc), rst=pin(args.reset),
-            baudrate=args.baudrate, width=WIDTH, height=HEIGHT, rotation=args.rotation,
+            baudrate=args.baudrate, width=PANEL_WIDTH, height=PANEL_HEIGHT,
+            rotation=args.rotation,
         )
     except Exception as e:
         sys.exit(f"Couldn't open the display ({e}).\n{FAILURES}")
@@ -134,7 +143,9 @@ def main() -> None:
     light = "3V3 (always on)" if backlight is None else (
         f"GPIO{args.backlight} ({'active low' if args.backlight_active_low else 'active high'})")
     print(f"SPI0 CE{args.cs} · D/C GPIO{args.dc} · RESET GPIO{args.reset} · "
-          f"{args.baudrate / 1e6:g} MHz · rotation {args.rotation} · backlight {light}\n")
+          f"{args.baudrate / 1e6:g} MHz · rotation {args.rotation} "
+          f"({WIDTH}x{HEIGHT}, {'landscape' if WIDTH > HEIGHT else 'portrait'}) · "
+          f"backlight {light}\n")
 
     print("1. Solid colours. Each should fill the whole panel, edge to edge.")
     for name, rgb in COLOURS:

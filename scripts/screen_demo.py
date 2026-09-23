@@ -93,8 +93,13 @@ def main() -> None:
               f"GPIO{screen_settings.reset_gpio} · backlight {light}")
 
     cache = screen_settings.cache_dir or settings.database_path.parent / "pictures"
-    finder = PictureFinder(cache, screen_settings.timeout_seconds)
-    print(f"pictures cached in {cache}, {screen_settings.timeout_seconds:g}s timeout\n")
+    from talkbox.audio.pi import image_size
+
+    size = display.size if display is not None else image_size(screen_settings.rotation)
+    finder = PictureFinder(cache, screen_settings.timeout_seconds, size)
+    print(f"pictures {size[0]}x{size[1]} "
+          f"({'landscape' if size[0] > size[1] else 'portrait'}), cached in {cache}, "
+          f"{screen_settings.timeout_seconds:g}s timeout\n")
 
     classifier = None
     if args.subject is None:

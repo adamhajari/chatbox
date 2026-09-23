@@ -128,6 +128,15 @@ class RgbLed:
         self._led.close()
 
 
+def image_size(rotation: int) -> tuple[int, int]:
+    """The picture size for a 240x320 panel turned by `rotation` degrees.
+
+    Landscape (90 or 270) is how Talkbox mounts it: a photograph of a thing is usually
+    wider than it is tall, so a portrait panel letterboxes most lead images heavily.
+    """
+    return (Screen.HEIGHT, Screen.WIDTH) if rotation % 180 == 90 else (Screen.WIDTH, Screen.HEIGHT)
+
+
 class Screen:
     """The 2.2" SPI display (ILI9341, 240x320) on hardware SPI0 (docs/hardware.md).
 
@@ -135,8 +144,12 @@ class Screen:
     and Blinka are imported lazily, so a laptop and the test suite never need them,
     and a display that isn't there gets a sentence rather than a stack trace.
 
-    The panel is used in portrait, 240 wide by 320 tall, which is how it comes up with
-    no rotation and the shape most lead images suit.
+    The panel is 240x320 however it is turned; `rotation` says which way up it is
+    mounted, and `size` is the shape a picture has to be to fit it -- 320x240 landscape
+    at 90 or 270, 240x320 portrait at 0 or 180. Those have to agree: the driver refuses
+    an image of the wrong size, and `show` swallows that like any other failure, so a
+    mismatch would be a silently dark screen. `show` therefore re-fits anything that
+    doesn't already match rather than trusting the caller.
 
     The backlight can be a GPIO (`backlight_gpio`, GPIO12 on this build) instead of a
     permanent 3V3 connection. That is what makes a blank screen genuinely dark: filling
@@ -152,10 +165,12 @@ class Screen:
     (PLAN.md D28) and must never be the thing that breaks a turn.
     """
 
+    # The panel's own dimensions, which never change: rotation turns the picture, not
+    # the glass.
     WIDTH, HEIGHT = 240, 320
 
     def __init__(self, dc: int = 25, reset: int = 27, cs: int = 0, baudrate: int = 24_000_000,
-                 rotation: int = 0, backlight_gpio: int | None = None,
+                 rotation: int = 90, backlight_gpio: int | None = None,
                  backlight_active_high: bool = True, display=None, backlight=None) -> None:
         if display is None:
             display = self._open(dc, reset, cs, baudrate, rotation)
@@ -163,6 +178,12 @@ class Screen:
             backlight = self._open_backlight(backlight_gpio, backlight_active_high)
         self._display = display
         self._backlight = backlight
+        self.rotation = rotation % 360
+
+    @property
+    def size(self) -> tuple[int, int]:
+        """The (width, height) a picture must be to fill this screen as mounted."""
+        return image_size(self.rotation)
 
     @staticmethod
     def _open(dc: int, reset: int, cs: int, baudrate: int, rotation: int):
@@ -233,6 +254,15 @@ class Screen:
             pass
 
     def show(self, image) -> None:
+        if getattr(image, "size", None) != self.size:
+            # Belt and braces: the finder is told this screen's size, but a mismatch
+            # here would be invisible (the driver raises, show swallows, screen dark).
+            from talkbox.pictures import fit
+
+            try:
+                image = fit(image, self.size)
+            except Exception:  # noqa: BLE001
+                return
         try:
             self._display.image(image)
         except Exception:  # noqa: BLE001 - see the class docstring: never break a turn

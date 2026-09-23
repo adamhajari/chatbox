@@ -23,6 +23,9 @@
 [screen]
 # enabled = true
 # timeout_seconds = 3
+# 90/270 = landscape (the default), 0/180 = portrait. Use whichever matches how the
+# panel ended up in the enclosure -- screen_check.py's blue square marks the top left.
+# rotation = 90
 # The backlight pin, if it's on a GPIO rather than 3V3 (docs/hardware.md).
 # backlight_gpio = 12
 # backlight_active_high = true
