@@ -74,7 +74,11 @@ class PictureShow:
     def __init__(self, display: Display, finder) -> None:
         self.display = display
         self.finder = finder
-        self.last: Picture | None = None   # what is on the screen now, for --verbose
+        self.last: Picture | None = None      # what is on the screen right now
+        # What this turn put on the screen, kept after it is cleared so --verbose can
+        # report it: by the time a spoken turn prints its steps, the speaker has
+        # already blanked the screen.
+        self.previous: Picture | None = None
         self._lock = threading.Lock()
         # The lookup in flight. Nothing waits on it -- it is kept as a handle on the
         # turn's work (the tests wait on it, and a cancel would need it).
@@ -88,7 +92,7 @@ class PictureShow:
     def wanted(self, subject: str | None) -> None:
         with self._lock:
             self._turn += 1
-            self._pending = self._result = None
+            self._pending = self._result = self.previous = None
             if not subject:
                 return
             turn = self._turn
@@ -111,6 +115,13 @@ class PictureShow:
         if late and picture is not None:
             self._put(picture, turn)
         return picture
+
+    @property
+    def looking(self) -> bool:
+        """A lookup is still in flight, so a picture may yet appear. Only for
+        reporting -- nothing waits on this."""
+        pending = self._pending
+        return pending is not None and not pending.done()
 
     # -- called from the speaker ---------------------------------------------
 
@@ -146,7 +157,7 @@ class PictureShow:
             return
         with self._lock:
             if turn == self._turn and self._showing:
-                self.last = picture
+                self.last = self.previous = picture
 
 
 class WatchingClassifier:

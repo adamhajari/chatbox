@@ -317,6 +317,11 @@ classifier (already running) ─▶ subject ─▶ Wikipedia article's lead imag
 - **Blocked and redirected questions show nothing.** Only an "allow" starts a lookup.
 - **Between turns the screen is blank**, and with `backlight_gpio` set the backlight
   goes out with it, so it's genuinely dark rather than a lit grey rectangle.
+- **`talkbox chat` uses it too**, not just `talkbox talk`: the picture goes up with the
+  printed answer and comes down when the next question is typed. That is the only way
+  to see a whole turn on a Pi whose microphone and speaker aren't wired yet. It appears
+  a moment *after* the text, because the lookup only starts when the classifier returns
+  and there is no speech to cover it.
 - **Adapters, not plumbing.** `talkbox/voice.py` and the pipeline know nothing about the
   screen, exactly as with the status light. `talkbox/audio/picture.py` wraps the
   classifier (to catch the subject) and the speaker (to show and clear); the panel itself

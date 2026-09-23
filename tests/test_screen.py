@@ -729,3 +729,49 @@ def test_the_user_agent_is_one_wikimedia_accepts():
     # A bare scheme-and-host with nothing behind it reads as a placeholder and is
     # refused; it must be a page that exists.
     assert "https://github.com/;" not in USER_AGENT
+
+
+def test_verbose_can_report_the_picture_after_the_screen_has_been_cleared():
+    """A spoken turn blanks the screen before --verbose prints its steps, so reporting
+    from `last` printed nothing, ever."""
+    show = show_for(picture=picture_of())
+    show.wanted("octopus")
+    assert wait_for(lambda: show._pending.done())
+    show.show()
+    show.clear()
+    assert show.last is None                       # the screen really is blank
+    assert show.previous.subject == "octopus"      # but we can still say what was on it
+
+
+def test_a_new_question_forgets_the_last_picture():
+    show = show_for(picture=picture_of())
+    show.wanted("octopus")
+    assert wait_for(lambda: show._pending.done())
+    show.show()
+    show.clear()
+    show.wanted(None)          # a question with no subject
+    assert show.previous is None
+
+
+def test_a_lookup_in_flight_is_reported_as_still_looking():
+    """`chat` prints its answer the instant the classifier returns, so the lookup has
+    usually barely started -- "nothing" would be the wrong thing to say."""
+    release = threading.Event()
+
+    class Slow:
+        def find(self, subject):
+            release.wait(2.0)
+            return picture_of()
+
+    show = PictureShow(FakeDisplay(), Slow())
+    assert show.looking is False
+    show.wanted("octopus")
+    assert show.looking is True and show.previous is None
+    release.set()
+    assert wait_for(lambda: not show.looking)
+
+
+def test_no_subject_is_not_still_looking():
+    show = show_for(picture=picture_of())
+    show.wanted(None)
+    assert show.looking is False and show.previous is None

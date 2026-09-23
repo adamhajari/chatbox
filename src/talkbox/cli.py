@@ -65,6 +65,11 @@ def cmd_chat(args, settings) -> None:
     counter, controls, log = _open_db(args, settings)
     pipeline = build_pipeline(store, settings, counter, log, controls)
     g = settings.guardrails
+    # The screen works here too. There is no speaker to hang it off, so the picture
+    # goes up with the printed answer and comes down when the next question is typed,
+    # which is the same rule as in `talk`: the screen matches what's happening. On a Pi
+    # with no microphone yet this is the only way to see a whole turn.
+    show = _start_screen(settings, pipeline)
     web = _start_web(args, settings, store, counter, controls, log)
 
     print(f"Talkbox ({policy.persona.name}) · policy {policy.version_label()} · "
@@ -83,6 +88,8 @@ def cmd_chat(args, settings) -> None:
                 break
             if not question:
                 continue
+            if show is not None:
+                show.clear()    # a new question: the last answer's picture comes down
             if question.lower() in {"quit", "exit"}:
                 break
             if question.lower() == "new":
@@ -90,19 +97,40 @@ def cmd_chat(args, settings) -> None:
                 print("(new session)\n")
                 continue
             answer = pipeline.ask(question)
+            if show is not None:
+                show.show()     # whatever is ready; a slow lookup lands a moment later
             print(f"{pipeline.policy.persona.name}> {answer.text}")
             if args.verbose:
                 _print_steps(answer.steps, answer.latency_ms)
+                _print_screen(show)
             print()
     except KeyboardInterrupt:
         print()
     finally:
+        if show is not None:
+            show.close()
         if web:
             web.stop()
         counter.close()
         controls.close()
         if log:
             log.close()
+
+
+def _print_screen(show) -> None:
+    """With --verbose, what is on the screen right now (or why nothing is)."""
+    if show is None:
+        return
+    # `previous`, not `last`: a spoken turn has already blanked the screen by now.
+    picture = show.previous
+    if picture is not None:
+        print(f"   · screen: {picture.title or picture.subject} ({picture.source})")
+    elif show.looking:
+        # Normal in `chat`, where the answer prints the instant the classifier returns
+        # and the lookup has barely started. It appears a moment later.
+        print("   · screen: still looking; the picture appears when it arrives")
+    else:
+        print("   · screen: nothing (no subject, or no picture found)")
 
 
 def _print_steps(steps: list[dict], total_ms: int | None = None) -> None:
@@ -208,9 +236,7 @@ def cmd_talk(args, settings) -> None:
                     print(f"{pipeline.policy.persona.name}> {result.spoken}")
                 if args.verbose:
                     _print_steps(result.steps)
-                    if show is not None and show.last is not None:
-                        print(f"   · screen: {show.last.title or show.last.subject} "
-                              f"({show.last.source})")
+                    _print_screen(show)
                 print()
                 press.flush()
     except KeyboardInterrupt:

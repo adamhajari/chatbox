@@ -294,6 +294,10 @@ speaker, which is the only end-to-end test available until the audio hardware is
 .venv/bin/python scripts/screen_demo.py --subject octopus     # skips the model call
 ```
 
+Then `talkbox chat -v` drives the screen from real questions typed at the keyboard,
+once `[screen] enabled = true` is in `talkbox.local.toml`. The picture appears a moment
+after the answer, since nothing waits for it and there is no speech to cover the gap.
+
 **Not yet run on the bench.** The pinout above is the intended wiring (PLAN.md D25
 reserved SPI0 plus GPIO25/27 for exactly this), and it is what the script and
 `talkbox.toml` default to, but nothing has been connected yet. Run this before
