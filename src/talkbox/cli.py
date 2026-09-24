@@ -60,7 +60,7 @@ def cmd_chat(args, settings) -> None:
     from talkbox.pipeline import build_pipeline
 
     path = args.policy or settings.policy_path
-    store = PolicyStore(_load_policy_or_exit(path), path, settings.screen is not None)
+    store = PolicyStore(_load_policy_or_exit(path), path)
     policy = store.policy
     counter, controls, log = _open_db(args, settings)
     pipeline = build_pipeline(store, settings, counter, log, controls)
@@ -164,7 +164,7 @@ def cmd_talk(args, settings) -> None:
         sys.exit(f"talkbox talk needs a microphone and a speaker, but {problem}\n"
                  "`talkbox chat` works without them.")
     path = args.policy or settings.policy_path
-    store = PolicyStore(_load_policy_or_exit(path), path, settings.screen is not None)
+    store = PolicyStore(_load_policy_or_exit(path), path)
     policy = store.policy
     counter, controls, log = _open_db(args, settings)
     pipeline = build_pipeline(store, settings, counter, log, controls)
@@ -290,9 +290,7 @@ def cmd_check_policy(args, settings) -> None:
 
 
 def cmd_show_prompt(args, settings) -> None:
-    # Shows the prompt this machine would send, screen section included or not.
-    print(compile_system_prompt(_load_policy_or_exit(args.policy or settings.policy_path),
-                                settings.screen is not None))
+    print(compile_system_prompt(_load_policy_or_exit(args.policy or settings.policy_path)))
 
 
 def cmd_log(args, settings) -> None:

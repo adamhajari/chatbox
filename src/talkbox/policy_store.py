@@ -40,8 +40,8 @@ class StaleEditError(Exception):
         self.base_version, self.current_version = base_version, current_version
 
 
-def _snapshot(policy: Policy, screen: bool = False) -> PolicySnapshot:
-    return PolicySnapshot(policy, compile_system_prompt(policy, screen))
+def _snapshot(policy: Policy) -> PolicySnapshot:
+    return PolicySnapshot(policy, compile_system_prompt(policy))
 
 
 def _leading_comments(path: Path) -> str:
@@ -88,20 +88,16 @@ def write_atomically(path: Path, text: str) -> None:
 
 
 class PolicyStore:
-    def __init__(self, policy: Policy, path: str | Path | None = None,
-                 screen: bool = False) -> None:
+    def __init__(self, policy: Policy, path: str | Path | None = None) -> None:
         """`path=None` keeps the policy in memory only (tests, a pipeline built from a
-        Policy object). `screen` says this machine has the picture screen, which adds a
-        section to the system prompt; it is carried here so that a policy saved from the
-        settings page recompiles the same way."""
+        Policy object)."""
         self.path = Path(path) if path is not None else None
-        self.screen = screen
-        self._current = _snapshot(policy, screen)
+        self._current = _snapshot(policy)
         self._lock = threading.Lock()  # one save at a time; readers never wait
 
     @classmethod
-    def load(cls, path: str | Path, screen: bool = False) -> PolicyStore:
-        return cls(load_policy(path), path, screen)
+    def load(cls, path: str | Path) -> PolicyStore:
+        return cls(load_policy(path), path)
 
     def snapshot(self) -> PolicySnapshot:
         # A single attribute read, so it's always a consistent (policy, prompt) pair.
@@ -124,7 +120,7 @@ class PolicyStore:
             if base_version is not None and base_version != current.policy_version:
                 raise StaleEditError(base_version, current.policy_version)
             new = Policy.model_validate({**data, "policy_version": current.policy_version + 1})
-            snap = _snapshot(new, self.screen)
+            snap = _snapshot(new)
             if self.path is not None:
                 write_atomically(self.path, _leading_comments(self.path) + policy_to_yaml(new))
             self._current = snap
