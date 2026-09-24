@@ -305,14 +305,60 @@ reserved SPI0 plus GPIO25/27 for exactly this), and it is what the script and
 
 ---
 
+## The amplifier and speaker
+
+A MAX98357A I2S amplifier driving a 3" 4 Ω speaker (PLAN.md D24). Wire it by the
+**physical** pin numbers below: GPIO19 and GPIO21 are *not* physical pins 19 and 21 —
+those two are SPI lines reserved for the screen, and confusing them is the easiest
+mistake to make on this build.
+
+| Amp pin | Physical pin | GPIO | What it is |
+|---|---|---|---|
+| VIN | 2 | — | 5 V, not 3.3 V: a 4 Ω speaker wants the power |
+| GND | 6 | — | |
+| BCLK | 12 | GPIO18 | bit clock |
+| LRC / LRCLK | 35 | GPIO19 | left-right (word select) clock |
+| DIN | 40 | GPIO21 | serial data in |
+| GAIN | — | — | leave unconnected for the 9 dB default |
+| SD | — | — | leave unconnected: on, and mono (L+R)/2 |
+
+The speaker goes to the two screw terminals. **Neither speaker wire goes to ground** —
+the output is bridge-tied, and grounding one side shorts the amplifier.
+
+### Enabling it
+
+In `/boot/firmware/config.txt`:
+
+```
+dtparam=audio=off
+dtoverlay=hifiberry-dac
+```
+
+then reboot. **This disables the 3.5 mm headphone jack**, which is PWM-driven and gives
+way to the I2S device. The headphones stop working the moment the speaker starts.
+Comment both lines out and reboot to get them back.
+
+### Verifying it
+
+```sh
+aplay -l                        # expect a snd_rpi_hifiberry_dac card
+speaker-test -c2 -t wav         # noise from the speaker
+.venv/bin/python scripts/mic_check.py --playback
+```
+
+| What you see | What it means |
+|---|---|
+| no hifiberry card in `aplay -l` | the overlay didn't load — check `config.txt` and that you rebooted |
+| card appears, no sound | check the speaker terminals, and `alsamixer` volume on the new card |
+| a lightning bolt, or the Pi reboots when it gets loud | power, not the amp: the MAX98357A pulls over an amp in peaks at 5 V into 4 Ω. Use the 2.5 A supply |
+| Talkbox plays through the wrong device | set `output_device` in `talkbox.local.toml` to a name from `scripts/mic_check.py` |
+
 ## Still to do
 
 - `src/talkbox/audio/pi.py`: the Pi adapter — button as push-to-talk in place of the
   laptop's spacebar, the LED driven from the pipeline's states, USB microphone capture and
   I2S output. Needs the mic and speaker in hand, since `VoiceTurn` wants an audio iterable
   and a `Speaker`.
-- MAX98357A on GPIO18/19/21, plus the device-tree overlay in `/boot/firmware/config.txt`
-  and `libportaudio2`.
 - Measure the backlight current, wire the screen (with the P-MOSFET if the measurement
   calls for it), run `scripts/screen_check.py --backlight 12`, then turn it on with
   `[screen] enabled = true` and `backlight_gpio = 12` in `talkbox.local.toml`.
