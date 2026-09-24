@@ -2,8 +2,8 @@
 
 The button, status light and picture screen for the Raspberry Pi build. The button and
 LED were wired and verified on 2026-09-22; the screen's pinout was chosen on 2026-09-23
-and is **not yet verified on the bench** (see "Verifying it"). The amplifier's wiring is
-recorded below but likewise unverified; the microphone and speaker aren't wired yet.
+and is **not yet verified on the bench** (see "Verifying it"). The amplifier and speaker
+were wired and verified on 2026-09-23.
 
 For getting the software onto the Pi in the first place, see
 [pi-setup.md](pi-setup.md).
@@ -351,6 +351,58 @@ speaker-test -c2 -t wav         # noise from the speaker
 | card appears, no sound | check the speaker terminals, and `alsamixer` volume on the new card |
 | a lightning bolt, or the Pi reboots when it gets loud | power, not the amp: the MAX98357A pulls over an amp in peaks at 5 V into 4 Ω. Use the 2.5 A supply |
 | Talkbox plays through the wrong device | set `output_device` in `talkbox.local.toml` to a name from `scripts/mic_check.py` |
+
+Getting a pin wrong here is the likely first failure, and it doesn't announce itself:
+the card still enumerates, ALSA still accepts frames, and the result is silence or a
+buzz. Check the **physical** numbers again before suspecting anything else.
+
+### Volume
+
+**The MAX98357A has no hardware volume control**, so `alsamixer -c 1` reports "This
+sound device does not have any controls". That is correct, not a fault — it is a plain
+I2S DAC. Volume has to be done in software, and ALSA's `softvol` plugin is the tidy way,
+because it creates a real `Master` that `alsamixer`, `amixer` and Talkbox all share.
+
+`/etc/asound.conf`:
+
+```
+pcm.!default {
+    type      plug
+    slave.pcm "softvol"
+}
+
+pcm.softvol {
+    type      softvol
+    slave.pcm "plughw:1,0"
+    control {
+        name  "Master"
+        card  1
+    }
+    min_dB -51.0
+    max_dB   0.0
+}
+
+ctl.!default {
+    type hw
+    card 1
+}
+```
+
+This also pins the default device. It has to: turning the onboard audio off removes card
+0, so anything asking for "the default" would otherwise land on HDMI or fail. That covers
+`aplay`, `speaker-test` and PortAudio in one place, which is better than naming the
+device in `talkbox.local.toml` — the card numbering is a property of the machine, not of
+Talkbox.
+
+The `Master` control doesn't exist until the device is first opened, so play something
+before looking for it. Then `sudo alsactl store` to survive a reboot.
+
+**`max_dB` is a ceiling worth setting deliberately.** It caps how loud the device can
+ever go, in the one place a child or a stray `amixer` call can't override. Wire it at 0,
+hear what full scale sounds like in the room, then lower `max_dB` until 100% *is* the
+loudest you want it, and store it. This is a hearing-safety setting on a box a small
+child holds near their face.
+
 
 ## Still to do
 
