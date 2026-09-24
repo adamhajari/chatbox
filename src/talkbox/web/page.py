@@ -49,6 +49,9 @@ pre { white-space:pre-wrap; word-wrap:break-word; font-size:.85rem; background:v
 .hidden-default { position:absolute; left:-9999px; }
 .status { display:flex; flex-wrap:wrap; gap:10px; align-items:center; justify-content:space-between; }
 .status form { display:inline; margin:0; }
+.volume { margin-top:14px; }
+.volume form { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+.volume input[type=range] { flex:1 1 180px; min-width:140px; }
 .count { font-size:1.6rem; font-weight:700; }
 .paused { background:#fff4e5; border-color:#f0b35b; }
 button.warn { background:#b3261e; color:#fff; border-color:#b3261e; font-weight:600; }
@@ -262,7 +265,22 @@ def status_panel(status: dict[str, Any]) -> str:
 <div style="display:flex; gap:10px; flex-wrap:wrap">
 <form method="post" action="/controls"><button name="action" value="reset_count">Reset today's count</button></form>
 <form method="post" action="/controls">{toggle}</form>
-</div></div></section>"""
+</div></div>
+{volume_control(status["volume"])}</section>"""
+
+
+def volume_control(volume: int) -> str:
+    """Its own form, like the buttons above: moving the slider must never save settings.
+
+    0 is silent, and there is no separate mute button. A slider at 0 is a mute a parent
+    can see; a mute button that outlives whoever pressed it is how a device ends up
+    "broken"."""
+    return f"""<div class="volume"><form method="post" action="/controls">
+<label for="volume">Volume <output id="volout">{volume}</output>%</label>
+<input type="range" id="volume" name="volume" min="0" max="100" step="5" value="{volume}"
+       oninput="document.getElementById('volout').value = this.value">
+<button class="primary" name="action" value="set_volume">Set volume</button>
+</form><p class="help">Applies to the next thing Talkbox says. 0 is silent.</p></div>"""
 
 
 def render(

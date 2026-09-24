@@ -740,3 +740,39 @@ def test_known_device_name_is_accepted(monkeypatch):
 
     monkeypatch.setattr(sd, "query_devices", query)
     assert audio_device_problem(input_device="Built-in Mic") is None
+
+
+# ---- volume: the speaker scales what it writes -------------------------------------
+
+def test_volume_gain_is_perceptual_not_linear():
+    from talkbox.audio.laptop import volume_gain
+
+    assert volume_gain(100) == 1.0
+    assert volume_gain(0) == 0.0
+    # Halfway on the slider is a quarter of the amplitude (about -12 dB), because a
+    # linear slider does almost nothing until its last few percent.
+    assert volume_gain(50) == 0.25
+    assert volume_gain(150) == 1.0 and volume_gain(-10) == 0.0
+
+
+def test_scaling_pcm():
+    from array import array
+
+    from talkbox.audio.laptop import scale
+
+    pcm = array("h", [10000, -10000, 30000]).tobytes()
+    assert array("h", scale(pcm, 0.5)).tolist() == [5000, -5000, 15000]
+    assert array("h", scale(pcm, 0.0)).tolist() == [0, 0, 0]
+    assert scale(pcm, 1.0) is pcm                      # full volume copies nothing
+
+
+def test_scaling_never_amplifies():
+    """A volume control only attenuates. Past full scale, 16-bit samples wrap, which is
+    catastrophic rather than merely loud."""
+    from array import array
+
+    from talkbox.audio.laptop import scale
+
+    loud = array("h", [32767, -32768]).tobytes()
+    assert array("h", scale(loud, 2.0)).tolist() == [32767, -32768]
+    assert array("h", scale(loud, 0.5)).tolist() == [16383, -16384]

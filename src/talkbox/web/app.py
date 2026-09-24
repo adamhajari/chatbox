@@ -76,7 +76,7 @@ def create_app(
         p = store.policy
         return {"used": counter.get(today()), "limit": p.limits.daily_questions,
                 "timezone": p.schedule.timezone, "paused": controls.paused,
-                "paused_reply": PAUSED_REPLY}
+                "volume": controls.volume, "paused_reply": PAUSED_REPLY}
 
     def todays_exchanges() -> list[dict] | None:
         if log is None:
@@ -117,7 +117,7 @@ def create_app(
         now = right_now()
         if now is None:
             return PlainTextResponse("No status.", status_code=404)
-        return JSONResponse({k: now[k] for k in ("used", "limit", "paused")})
+        return JSONResponse({k: now[k] for k in ("used", "limit", "paused", "volume")})
 
     @app.post("/controls")
     async def control(request: Request) -> Response:
@@ -127,6 +127,11 @@ def create_app(
             return PlainTextResponse("Unknown action.", status_code=400)
         if action == "reset_count":
             counter.reset(today())
+        elif action == "set_volume":
+            try:
+                controls.set_volume(int(form.get("volume", ["100"])[0]))
+            except ValueError:
+                return PlainTextResponse("Volume must be a whole number.", status_code=400)
         else:
             controls.set_paused(action == "pause")
         return RedirectResponse(f"/?done={action}", status_code=303)
@@ -194,6 +199,7 @@ CONTROL_MESSAGES = {
     "pause": "Paused. Every question now gets the resting reply until you press Resume.",
     "resume": "Resumed. Talkbox answers from the next question.",
     "reset_count": "Today's question count is back to 0.",
+    "set_volume": "Volume saved. It applies to the next thing Talkbox says.",
 }
 
 

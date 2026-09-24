@@ -103,6 +103,28 @@ class Controls:
             )
             self._conn.commit()
 
+    @property
+    def volume(self) -> int:
+        """0-100. Device state, not policy: it belongs to this box in this room, not to
+        the rules a parent sets, so it lives here rather than in the policy file."""
+        with self._lock:
+            row = self._conn.execute("SELECT value FROM controls WHERE name = 'volume'").fetchone()
+        if row is None:
+            return 100
+        try:
+            return max(0, min(100, int(row[0])))
+        except ValueError:
+            return 100
+
+    def set_volume(self, percent: int) -> None:
+        with self._lock:
+            self._conn.execute(
+                """INSERT INTO controls (name, value) VALUES ('volume', ?)
+                   ON CONFLICT(name) DO UPDATE SET value = excluded.value""",
+                (str(max(0, min(100, int(percent)))),),
+            )
+            self._conn.commit()
+
     def close(self) -> None:
         self._conn.close()
 

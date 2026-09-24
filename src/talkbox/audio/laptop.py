@@ -18,8 +18,9 @@ import termios
 import threading
 import time
 import tty
+from array import array
 from dataclasses import dataclass
-from typing import Iterable, Iterator, Literal
+from typing import Callable, Iterable, Iterator, Literal
 
 from talkbox.audio.cues import cue_pcm
 
@@ -143,17 +144,48 @@ class KeyboardPress:
         self.keyboard.flush()
 
 
+def scale(chunk: bytes, gain: float) -> bytes:
+    """Multiply 16-bit mono PCM by `gain`.
+
+    Gain is clamped to 0.0-1.0 and never amplifies: this is a volume control, and pushing
+    past full scale would clip into distortion rather than get usefully louder. Within
+    that range no sample can overflow, so nothing here can wrap.
+    """
+    gain = max(0.0, min(1.0, gain))
+    if gain == 1.0:
+        return chunk  # the common case: no copy, no arithmetic
+    samples = array("h", chunk[: len(chunk) - len(chunk) % 2])
+    if gain == 0.0:
+        return bytes(len(samples) * 2)
+    for i, sample in enumerate(samples):
+        samples[i] = int(sample * gain)
+    return samples.tobytes()
+
+
+def volume_gain(percent: int) -> float:
+    """Slider percent to amplitude. Squared rather than linear: loudness is perceived
+    roughly logarithmically, so a linear slider does almost nothing over its top half
+    and everything in the last few percent."""
+    return (max(0, min(100, percent)) / 100) ** 2
+
+
 class LaptopSpeaker:
-    def __init__(self, device: str | int | None = None, cue_rate: int = 24_000) -> None:
+    def __init__(self, device: str | int | None = None, cue_rate: int = 24_000,
+                 volume: Callable[[], int] | None = None) -> None:
         import sounddevice as sd
 
         self._sd, self.device, self.cue_rate = sd, device, cue_rate
+        # Read per write, so a change from the settings page applies to the next sound.
+        self._volume = volume or (lambda: 100)
 
     def _write(self, chunks: Iterable[bytes], sample_rate: int) -> None:
+        gain = volume_gain(self._volume())
+        if gain <= 0.0:
+            return  # muted: don't hold the device open for silence
         with self._sd.RawOutputStream(samplerate=sample_rate, channels=1, dtype="int16",
                                       device=self.device) as stream:
             for chunk in chunks:
-                stream.write(chunk)
+                stream.write(scale(chunk, gain))
         # Leaving the `with` block stops the stream once queued audio has played.
 
     def cue(self, name: str, wait: bool = False) -> None:

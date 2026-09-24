@@ -175,7 +175,8 @@ def cmd_talk(args, settings) -> None:
 
     ptt_settings, voice_settings = pick(PushToTalkSettings), pick(VoiceSettings)
     stt, tts = make_stt(sp.stt_name, sp.stt_settings), make_tts(sp.tts_name, sp.tts_settings)
-    speaker = LaptopSpeaker(ptt_settings.output_device, tts.sample_rate)
+    speaker = LaptopSpeaker(ptt_settings.output_device, tts.sample_rate,
+                            volume=lambda: controls.volume)
     light = NoLight()
     if ptt_settings.led_gpio is not None:
         from talkbox.audio.pi import RgbLed

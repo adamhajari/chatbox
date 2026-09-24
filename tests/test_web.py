@@ -311,7 +311,8 @@ def test_status_json_follows_questions(live, store):
     assert client.get("/status.json").json()["used"] == 0
     pipeline.ask("one")
     assert client.get("/status.json").json() == {
-        "used": 1, "limit": store.policy.limits.daily_questions, "paused": False}
+        "used": 1, "limit": store.policy.limits.daily_questions, "paused": False,
+        "volume": 100}
     assert 'id="count"' in client.get("/").text and "/status.json" in client.get("/").text
 
 
@@ -355,3 +356,47 @@ def test_logging_off_says_so(live):
     pipeline.ask("secret question")
     html = client.get("/").text
     assert "Logging is off" in html and "secret question" not in html
+
+
+# ---- volume (device state, not policy) ---------------------------------------------
+
+def test_volume_defaults_to_full_and_saves(live):
+    client, _, _, controls = live
+    assert controls.volume == 100
+
+    r = client.post("/controls", data={"action": "set_volume", "volume": "40"},
+                    follow_redirects=True)
+    assert r.status_code == 200
+    assert controls.volume == 40
+    assert "Volume saved" in r.text
+    assert 'value="40"' in r.text          # the slider comes back where it was left
+
+
+def test_volume_is_clamped_not_rejected(live):
+    """A slider can't send these, but a hand-made request can."""
+    client, _, _, controls = live
+    client.post("/controls", data={"action": "set_volume", "volume": "500"})
+    assert controls.volume == 100
+    client.post("/controls", data={"action": "set_volume", "volume": "-20"})
+    assert controls.volume == 0
+
+
+def test_volume_that_is_not_a_number_is_refused(live):
+    client, _, _, controls = live
+    r = client.post("/controls", data={"action": "set_volume", "volume": "loud"})
+    assert r.status_code == 400
+    assert controls.volume == 100          # unchanged
+
+
+def test_volume_survives_a_restart(tmp_path):
+    """It lives in the database, like the pause switch, so a reboot doesn't undo it."""
+    from talkbox.log import Controls
+
+    db = tmp_path / "t.db"
+    controls = Controls(db)
+    controls.set_volume(35)
+    controls.close()
+
+    again = Controls(db)
+    assert again.volume == 35
+    again.close()
