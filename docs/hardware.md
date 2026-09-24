@@ -404,6 +404,47 @@ loudest you want it, and store it. This is a hearing-safety setting on a box a s
 child holds near their face.
 
 
+## The microphone
+
+A plug-and-play USB mic, no driver needed. It appears as its own card (card 0 here;
+`arecord -l` confirms it, and USB card numbers can shift if devices are plugged in a
+different order).
+
+**It does not do 16 kHz**, which is the rate the voice pipeline uses. Opening `hw:0,0`
+directly fails with `Invalid sample rate [PaErrorCode -9997]`. It has to go through
+ALSA's `plug` layer, which resamples — hence `capture_plug` in the `/etc/asound.conf`
+above, and `pcm.!default` being an `asym` device: playback to the amplifier, capture to
+the mic. A `!default` that only names a playback device leaves capture with nowhere to
+go.
+
+### Level
+
+`scripts/mic_check.py` reports RMS and peak against the `silence_rms` threshold the
+pipeline actually uses (200 by default). Anything below that gets "didn't catch that"
+without speech-to-text ever being called, so a quiet mic looks like a broken assistant.
+
+What to aim for, measured from where a child will stand, not from where you are:
+
+- **RMS 300–1000** speaking normally.
+- **Peak under about 20000** when someone is excited. Clipping wrecks recognition far
+  worse than a low level does, so err slightly quiet — the threshold is adjustable,
+  clipping isn't recoverable.
+
+Verified 2026-09-23 at capture 13/16 (81%, 19.34 dB): RMS 1510, peak 10981.
+
+```sh
+amixer -c 0 scontrols          # what this mic actually has
+alsamixer -c 0                 # F4 for capture, arrow to set, Esc
+sudo alsactl store             # levels are a snapshot; unstored changes revert at boot
+```
+
+**The trap:** in `alsamixer`'s capture view, **Space** toggles whether an item is a
+capture source and **M** mutes, and both are easy to hit while arrowing the level. The
+symptom is RMS and peak of exactly **0** — digital silence rather than a quiet signal,
+since even a badly placed mic produces some noise. Check with `amixer -c 0 sget Mic` and
+look for `[off]`; `amixer -c 0 sset Mic cap` turns it back on. Store again afterwards, or
+the muted state is what comes back at the next boot.
+
 ## Still to do
 
 - `src/talkbox/audio/pi.py`: the Pi adapter — button as push-to-talk in place of the
