@@ -6,7 +6,7 @@ import time
 
 import pytest
 
-from talkbox.guardrails import (
+from chatbox.guardrails import (
     Classification,
     GuardrailError,
     ModelClassifier,
@@ -17,9 +17,9 @@ from talkbox.guardrails import (
     length_problem,
     output_check_system_prompt,
 )
-from talkbox.pipeline import Pipeline
-from talkbox.policy import Policy
-from talkbox.providers.base import ChatMessage, ProviderError
+from chatbox.pipeline import Pipeline
+from chatbox.policy import Policy
+from chatbox.providers.base import ChatMessage, ProviderError
 from tests.conftest import WED_NOON, AllowAll, FakeProvider, PassAll
 
 SECRET = "UNCHECKED MODEL ANSWER"
@@ -194,11 +194,11 @@ def test_output_check_can_be_turned_off(policy, counter):
 
 
 def test_output_check_enabled_setting(tmp_path):
-    from talkbox.config import load_settings
+    from chatbox.config import load_settings
     from tests.conftest import ROOT
-    text = (ROOT / "talkbox.toml").read_text()
-    assert load_settings(ROOT / "talkbox.toml").guardrails.output_check.enabled
-    cfg = tmp_path / "talkbox.toml"
+    text = (ROOT / "chatbox.toml").read_text()
+    assert load_settings(ROOT / "chatbox.toml").guardrails.output_check.enabled
+    cfg = tmp_path / "chatbox.toml"
     cfg.write_text(text.replace("enabled = true", "enabled = false", 1))
     s = load_settings(cfg)
     assert not s.guardrails.output_check.enabled
@@ -337,7 +337,7 @@ class _Client:
 
 
 def test_anthropic_structured_output_request_and_parse():
-    from talkbox.providers.anthropic_provider import AnthropicProvider
+    from chatbox.providers.anthropic_provider import AnthropicProvider
     client = _Client(_Resp('{"a": 1}'))
     p = AnthropicProvider("claude-haiku-4-5", client=client)
     schema = {"type": "object"}
@@ -349,7 +349,7 @@ def test_anthropic_structured_output_request_and_parse():
 @pytest.mark.parametrize("resp", [_Resp("not json"), _Resp('{"a": 1}', "refusal"),
                                   _Resp('{"a"', "max_tokens"), _Resp("[1]")])
 def test_anthropic_structured_output_problems_raise(resp):
-    from talkbox.providers.anthropic_provider import AnthropicProvider
+    from chatbox.providers.anthropic_provider import AnthropicProvider
     p = AnthropicProvider("claude-haiku-4-5", client=_Client(resp))
     with pytest.raises(ProviderError):
         p.generate_structured("sys", [ChatMessage("user", "q")], {"type": "object"})

@@ -1,7 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from talkbox.policy import Policy, load_policy, policy_json_schema
+from chatbox.policy import Policy, load_policy, policy_json_schema
 from tests.conftest import DEFAULT_POLICY
 
 

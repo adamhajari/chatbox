@@ -5,14 +5,14 @@ from array import array
 
 import pytest
 
-from talkbox.audio.cues import cue_pcm
-from talkbox.audio.laptop import HoldDetector
-from talkbox.config import load_settings
-from talkbox.guardrails import Classification, OutputVerdict
-from talkbox.pipeline import Pipeline
-from talkbox.speech import SpeechError, Transcript, make_stt, make_tts
-from talkbox.speech.google import GoogleSpeechToText, GoogleTextToSpeech
-from talkbox.voice import VoiceSettings, VoiceTurn
+from chatbox.audio.cues import cue_pcm
+from chatbox.audio.laptop import HoldDetector
+from chatbox.config import load_settings
+from chatbox.guardrails import Classification, OutputVerdict
+from chatbox.pipeline import Pipeline
+from chatbox.speech import SpeechError, Transcript, make_stt, make_tts
+from chatbox.speech.google import GoogleSpeechToText, GoogleTextToSpeech
+from chatbox.voice import VoiceSettings, VoiceTurn
 from tests.conftest import ROOT, WED_NOON, AllowAll, FakeProvider, PassAll
 
 RATE = 16_000
@@ -297,7 +297,7 @@ def test_cues_are_short_pcm():
 # ---- settings and factories ----------------------------------------------------------
 
 def test_speech_settings_load():
-    sp = load_settings(ROOT / "talkbox.toml").speech
+    sp = load_settings(ROOT / "chatbox.toml").speech
     assert sp.stt_name == "google" and sp.tts_name == "google"
     assert sp.stt_settings["language"] == sp.tts_settings["language"] == "en-US"
     assert {"min_press_seconds", "silence_rms", "stt_timeout_seconds"} <= set(sp.voice)
@@ -408,7 +408,7 @@ def test_google_tts_reads_stream_ahead_of_slow_playback():
 def _problem(monkeypatch, query):
     import sounddevice as sd
 
-    from talkbox.audio import audio_device_problem
+    from chatbox.audio import audio_device_problem
 
     monkeypatch.setattr(sd, "query_devices", query)
     return audio_device_problem()
@@ -472,7 +472,7 @@ class FakePress:
 
 
 def test_button_reports_talk_only_while_pressed():
-    from talkbox.audio.pi import ButtonPress
+    from chatbox.audio.pi import ButtonPress
 
     button = FakeButton(pressed=False)
     press = ButtonPress(button=button)
@@ -487,7 +487,7 @@ def test_button_reports_talk_only_while_pressed():
 
 
 def test_button_flush_waits_for_release_but_gives_up():
-    from talkbox.audio.pi import ButtonPress
+    from chatbox.audio.pi import ButtonPress
 
     press = ButtonPress(button=FakeButton(pressed=True))
     started = time.monotonic()
@@ -496,7 +496,7 @@ def test_button_flush_waits_for_release_but_gives_up():
 
 
 def test_any_press_takes_whichever_source_fires():
-    from talkbox.audio.press import AnyPress
+    from chatbox.audio.press import AnyPress
 
     keyboard, button = FakePress("SPACE"), FakePress("the button", ["talk"])
     press = AnyPress([keyboard, button], poll_seconds=0.0)
@@ -509,7 +509,7 @@ def test_any_press_takes_whichever_source_fires():
 
 
 def test_any_press_flushes_every_source():
-    from talkbox.audio.press import AnyPress
+    from chatbox.audio.press import AnyPress
 
     keyboard, button = FakePress("SPACE"), FakePress("the button")
     press = AnyPress([keyboard, button], poll_seconds=0.0)
@@ -518,14 +518,14 @@ def test_any_press_flushes_every_source():
 
 
 def test_any_press_names_both_sources():
-    from talkbox.audio.press import AnyPress
+    from chatbox.audio.press import AnyPress
 
     press = AnyPress([FakePress("SPACE"), FakePress("the button")])
     assert press.name == "SPACE or the button"
 
 
 def test_keyboard_press_reads_commands():
-    from talkbox.audio.laptop import KeyboardPress
+    from chatbox.audio.laptop import KeyboardPress
 
     class FakeKeyboard:
         def __init__(self, keys):
@@ -571,7 +571,7 @@ class FakeLed:
 
 
 def lit(speaker=None):
-    from talkbox.audio.light import LitSpeaker
+    from chatbox.audio.light import LitSpeaker
 
     light = FakeLight()
     return LitSpeaker(speaker or CollectingSpeaker(), light), light
@@ -611,7 +611,7 @@ def test_light_returns_to_idle_even_if_playback_fails():
         def play(self, audio, sample_rate):
             raise RuntimeError("speaker gone")
 
-    from talkbox.audio.light import LitSpeaker
+    from chatbox.audio.light import LitSpeaker
 
     light = FakeLight()
     with pytest.raises(RuntimeError):
@@ -626,7 +626,7 @@ def test_a_whole_spoken_turn_lights_listening_thinking_speaking(make):
     "listening" before the mic opens and "stopped" when the button is released. Both go
     through the same speaker, which is what lets one wrapper see every state.
     """
-    from talkbox.audio.light import LitSpeaker
+    from chatbox.audio.light import LitSpeaker
 
     light = FakeLight()
     turn, speaker, _ = make()
@@ -645,7 +645,7 @@ def test_a_whole_spoken_turn_lights_listening_thinking_speaking(make):
 
 
 def test_rgb_led_maps_states_to_channels():
-    from talkbox.audio.pi import RgbLed
+    from chatbox.audio.pi import RgbLed
 
     led = FakeLed()
     light = RgbLed(led=led)
@@ -660,36 +660,36 @@ def test_rgb_led_maps_states_to_channels():
 
 
 def test_no_light_is_silent():
-    from talkbox.audio.light import NoLight
+    from chatbox.audio.light import NoLight
 
     light = NoLight()
     light.show("listening")
     light.close()
 
 
-# ---- per-machine settings (talkbox.local.toml) -------------------------------------
+# ---- per-machine settings (chatbox.local.toml) -------------------------------------
 
 def test_local_config_overrides_only_the_keys_it_names(tmp_path):
-    from talkbox.config import load_settings
+    from chatbox.config import load_settings
 
-    (tmp_path / "talkbox.toml").write_text((ROOT / "talkbox.toml").read_text())
-    (tmp_path / "talkbox.local.toml").write_text(
+    (tmp_path / "chatbox.toml").write_text((ROOT / "chatbox.toml").read_text())
+    (tmp_path / "chatbox.local.toml").write_text(
         "[voice]\nbutton_gpio = 17\n\n[guardrails.classifier]\ntimeout_seconds = 9\n")
 
-    settings = load_settings(tmp_path / "talkbox.toml")
+    settings = load_settings(tmp_path / "chatbox.toml")
     assert settings.speech.voice["button_gpio"] == 17
     # Sibling keys in the same sections survive.
     assert settings.speech.voice["sample_rate"] == 16000
     assert settings.guardrails.classifier.timeout_seconds == 9
     assert settings.guardrails.classifier.provider_settings["model"] == "claude-haiku-4-5"
-    assert settings.local_config == tmp_path / "talkbox.local.toml"
+    assert settings.local_config == tmp_path / "chatbox.local.toml"
 
 
 def test_without_a_local_config_nothing_changes(tmp_path):
-    from talkbox.config import load_settings
+    from chatbox.config import load_settings
 
-    (tmp_path / "talkbox.toml").write_text((ROOT / "talkbox.toml").read_text())
-    settings = load_settings(tmp_path / "talkbox.toml")
+    (tmp_path / "chatbox.toml").write_text((ROOT / "chatbox.toml").read_text())
+    settings = load_settings(tmp_path / "chatbox.toml")
     assert settings.local_config is None
     assert settings.speech.voice.get("button_gpio") is None
 
@@ -697,13 +697,13 @@ def test_without_a_local_config_nothing_changes(tmp_path):
 def test_local_config_keys_outside_a_section_are_an_error(tmp_path):
     """The failure this prevents: uncommenting `button_gpio` but not `[voice]` above it,
     which is valid TOML that silently does nothing."""
-    from talkbox.config import ConfigError, load_settings
+    from chatbox.config import ConfigError, load_settings
 
-    (tmp_path / "talkbox.toml").write_text((ROOT / "talkbox.toml").read_text())
-    (tmp_path / "talkbox.local.toml").write_text("button_gpio = 17\nled_gpio = [22, 23, 24]\n")
+    (tmp_path / "chatbox.toml").write_text((ROOT / "chatbox.toml").read_text())
+    (tmp_path / "chatbox.local.toml").write_text("button_gpio = 17\nled_gpio = [22, 23, 24]\n")
 
     with pytest.raises(ConfigError) as e:
-        load_settings(tmp_path / "talkbox.toml")
+        load_settings(tmp_path / "chatbox.toml")
     assert "button_gpio" in str(e.value) and "section" in str(e.value)
 
 
@@ -712,7 +712,7 @@ def test_unknown_device_name_is_named_with_the_alternatives(monkeypatch):
     recording, reported as "tap too short"."""
     import sounddevice as sd
 
-    from talkbox.audio import audio_device_problem
+    from chatbox.audio import audio_device_problem
 
     monkeypatch.setattr(sd, "query_devices", _devices_or_lookup)
     problem = audio_device_problem(input_device="No Such Mic")
@@ -731,7 +731,7 @@ def _devices_or_lookup(device=None, kind=None):
 def test_known_device_name_is_accepted(monkeypatch):
     import sounddevice as sd
 
-    from talkbox.audio import audio_device_problem
+    from chatbox.audio import audio_device_problem
 
     def query(device=None, kind=None):
         if device is None:
@@ -745,7 +745,7 @@ def test_known_device_name_is_accepted(monkeypatch):
 # ---- volume: the speaker scales what it writes -------------------------------------
 
 def test_volume_gain_is_perceptual_not_linear():
-    from talkbox.audio.laptop import volume_gain
+    from chatbox.audio.laptop import volume_gain
 
     assert volume_gain(100) == 1.0
     assert volume_gain(0) == 0.0
@@ -758,7 +758,7 @@ def test_volume_gain_is_perceptual_not_linear():
 def test_scaling_pcm():
     from array import array
 
-    from talkbox.audio.laptop import scale
+    from chatbox.audio.laptop import scale
 
     pcm = array("h", [10000, -10000, 30000]).tobytes()
     assert array("h", scale(pcm, 0.5)).tolist() == [5000, -5000, 15000]
@@ -771,7 +771,7 @@ def test_scaling_never_amplifies():
     catastrophic rather than merely loud."""
     from array import array
 
-    from talkbox.audio.laptop import scale
+    from chatbox.audio.laptop import scale
 
     loud = array("h", [32767, -32768]).tobytes()
     assert array("h", scale(loud, 2.0)).tolist() == [32767, -32768]

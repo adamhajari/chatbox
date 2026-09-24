@@ -12,12 +12,12 @@ import time
 import pytest
 from PIL import Image
 
-from talkbox.audio.picture import NoDisplay, PicturedSpeaker, PictureShow, WatchingClassifier
-from talkbox.config import load_settings
-from talkbox.guardrails import Classification, classifier_schema, parse_classification, parse_subject
-from talkbox.pictures import Picture, PictureFinder, fit, lead_image_url
-from talkbox.voice import VoiceSettings, VoiceTurn
-from talkbox.pipeline import Pipeline
+from chatbox.audio.picture import NoDisplay, PicturedSpeaker, PictureShow, WatchingClassifier
+from chatbox.config import load_settings
+from chatbox.guardrails import Classification, classifier_schema, parse_classification, parse_subject
+from chatbox.pictures import Picture, PictureFinder, fit, lead_image_url
+from chatbox.voice import VoiceSettings, VoiceTurn
+from chatbox.pipeline import Pipeline
 from tests.conftest import ROOT, WED_NOON, FakeProvider, PassAll
 from tests.test_voice import Events, FakeSpeaker, FakeSTT, FakeTTS, RATE, speech
 
@@ -82,7 +82,7 @@ class FakeHttp:
 def finder(tmp_path, monkeypatch):
     def make(http=None, timeout=3.0):
         http = http or FakeHttp()
-        monkeypatch.setattr("talkbox.pictures._get", http.get)
+        monkeypatch.setattr("chatbox.pictures._get", http.get)
         f = PictureFinder(tmp_path / "pictures", timeout)
         f.http = http
         return f
@@ -135,7 +135,7 @@ def test_subject_survives_on_redirect_and_refuse(policy):
 
 def test_bad_output_still_fails_closed_with_a_subject_present(policy):
     """The fail-closed path is unchanged: a subject can't rescue a bad classification."""
-    from talkbox.guardrails import GuardrailError
+    from chatbox.guardrails import GuardrailError
 
     with pytest.raises(GuardrailError):
         parse_classification({"decision": "sideways", "topic_id": "none", "reason": "?",
@@ -229,7 +229,7 @@ def test_fit_keeps_the_shape_and_fills_the_screen():
 @pytest.mark.parametrize("rotation,size", [(0, (240, 320)), (90, (320, 240)),
                                            (180, (240, 320)), (270, (320, 240))])
 def test_the_screens_picture_size_follows_its_rotation(rotation, size):
-    from talkbox.audio.pi import Screen, image_size
+    from chatbox.audio.pi import Screen, image_size
 
     assert image_size(rotation) == size
     assert Screen(rotation=rotation, display=object()).size == size
@@ -238,7 +238,7 @@ def test_the_screens_picture_size_follows_its_rotation(rotation, size):
 def test_a_picture_of_the_wrong_shape_is_refitted_rather_than_silently_dropped():
     """The driver refuses a mismatched image and show() swallows it, so a rotation the
     finder didn't know about would be an invisible failure."""
-    from talkbox.audio.pi import Screen
+    from chatbox.audio.pi import Screen
 
     class Panel:
         def __init__(self):
@@ -267,8 +267,8 @@ def test_the_api_query_asks_for_the_articles_lead_image(monkeypatch):
         return json.dumps({"query": {"pages": [
             {"title": "Moon", "thumbnail": {"source": "https://example.invalid/m.jpg"}}]}}).encode()
 
-    monkeypatch.setattr("talkbox.pictures._get", fake_get)
-    from talkbox.pictures import _Deadline
+    monkeypatch.setattr("chatbox.pictures._get", fake_get)
+    from chatbox.pictures import _Deadline
 
     assert lead_image_url("the Moon", _Deadline(2)) == ("https://example.invalid/m.jpg", "Moon")
     assert "prop=pageimages" in seen["url"] and "commons" not in seen["url"]
@@ -525,7 +525,7 @@ def test_a_broken_display_does_not_break_a_turn(policy, counter):
 
 
 def test_the_pi_screen_adapter_swallows_display_failures():
-    from talkbox.audio.pi import Screen
+    from chatbox.audio.pi import Screen
 
     class Panel:
         def __init__(self):
@@ -583,7 +583,7 @@ class FakeBacklight:
 
 
 def screen_with_backlight(fail=False, panel=None):
-    from talkbox.audio.pi import Screen
+    from chatbox.audio.pi import Screen
 
     class Panel:
         def __init__(self):
@@ -637,7 +637,7 @@ def test_a_backlight_that_fails_never_breaks_a_turn():
 
 
 def test_without_a_backlight_pin_nothing_changes():
-    from talkbox.audio.pi import Screen
+    from chatbox.audio.pi import Screen
 
     class Panel:
         def __init__(self):
@@ -657,17 +657,17 @@ def test_without_a_backlight_pin_nothing_changes():
 
 
 def test_the_backlight_settings_load(tmp_path):
-    (tmp_path / "talkbox.toml").write_text((ROOT / "talkbox.toml").read_text())
-    (tmp_path / "talkbox.local.toml").write_text(
+    (tmp_path / "chatbox.toml").write_text((ROOT / "chatbox.toml").read_text())
+    (tmp_path / "chatbox.local.toml").write_text(
         "[screen]\nenabled = true\nbacklight_gpio = 12\nbacklight_active_high = false\n")
-    screen = load_settings(tmp_path / "talkbox.toml").screen
+    screen = load_settings(tmp_path / "chatbox.toml").screen
     assert screen.backlight_gpio == 12 and screen.backlight_active_high is False
 
 
 def test_the_backlight_is_off_unless_a_machine_names_a_pin(tmp_path):
-    (tmp_path / "talkbox.toml").write_text((ROOT / "talkbox.toml").read_text())
-    (tmp_path / "talkbox.local.toml").write_text("[screen]\nenabled = true\n")
-    assert load_settings(tmp_path / "talkbox.toml").screen.backlight_gpio is None
+    (tmp_path / "chatbox.toml").write_text((ROOT / "chatbox.toml").read_text())
+    (tmp_path / "chatbox.local.toml").write_text("[screen]\nenabled = true\n")
+    assert load_settings(tmp_path / "chatbox.toml").screen.backlight_gpio is None
 
 
 def test_the_screen_adapter_explains_itself_when_the_library_is_missing(monkeypatch):
@@ -681,7 +681,7 @@ def test_the_screen_adapter_explains_itself_when_the_library_is_missing(monkeypa
         return real_import(name, *args, **kwargs)
 
     monkeypatch.setattr(builtins, "__import__", no_blinka)
-    from talkbox.audio.pi import Screen
+    from chatbox.audio.pi import Screen
 
     with pytest.raises(RuntimeError) as e:
         Screen()
@@ -691,17 +691,17 @@ def test_the_screen_adapter_explains_itself_when_the_library_is_missing(monkeypa
 # ---- settings (requirement 6) ------------------------------------------------------
 
 def test_the_tracked_config_ships_the_screen_off():
-    """talkbox.toml documents the options; only the Pi's local file turns it on."""
-    assert load_settings(ROOT / "talkbox.toml").screen is None
+    """chatbox.toml documents the options; only the Pi's local file turns it on."""
+    assert load_settings(ROOT / "chatbox.toml").screen is None
 
 
 def test_a_local_file_turns_the_screen_on(tmp_path):
-    (tmp_path / "talkbox.toml").write_text((ROOT / "talkbox.toml").read_text())
-    (tmp_path / "talkbox.local.toml").write_text("[screen]\nenabled = true\ntimeout_seconds = 2\n")
-    screen = load_settings(tmp_path / "talkbox.toml").screen
+    (tmp_path / "chatbox.toml").write_text((ROOT / "chatbox.toml").read_text())
+    (tmp_path / "chatbox.local.toml").write_text("[screen]\nenabled = true\ntimeout_seconds = 2\n")
+    screen = load_settings(tmp_path / "chatbox.toml").screen
     assert screen is not None
     assert screen.timeout_seconds == 2
-    assert (screen.dc_gpio, screen.reset_gpio, screen.cs) == (25, 27, 0)  # from talkbox.toml
+    assert (screen.dc_gpio, screen.reset_gpio, screen.cs) == (25, 27, 0)  # from chatbox.toml
     assert screen.rotation == 90   # landscape
     assert screen.cache_dir is None
 
@@ -723,9 +723,9 @@ def test_a_real_subject_really_fetches_a_picture(tmp_path):
 
 @pytest.mark.live
 def test_the_user_agent_is_one_wikimedia_accepts():
-    from talkbox.pictures import USER_AGENT
+    from chatbox.pictures import USER_AGENT
 
-    assert "Talkbox" in USER_AGENT
+    assert "Chatbox" in USER_AGENT
     # A bare scheme-and-host with nothing behind it reads as a placeholder and is
     # refused; it must be a page that exists.
     assert "https://github.com/;" not in USER_AGENT

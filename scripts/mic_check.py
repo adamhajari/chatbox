@@ -2,8 +2,8 @@
 """Check a microphone: does the Pi see it, is it loud enough, and can speech-to-text
 read what was said?
 
-Needs no speaker, so it works before the amplifier and speaker are wired. Talkbox's
-own `talkbox talk` needs both, by design.
+Needs no speaker, so it works before the amplifier and speaker are wired. Chatbox's
+own `chatbox talk` needs both, by design.
 
     .venv/bin/python scripts/mic_check.py                 # list devices, record 5 s, show levels
     .venv/bin/python scripts/mic_check.py -s 8            # record for 8 seconds
@@ -31,7 +31,7 @@ CHUNK = RATE // 10     # 0.1 s, the size the push-to-talk adapter yields
 
 
 def levels(pcm: bytes) -> tuple[float, int]:
-    """RMS and peak of 16-bit mono PCM, the same measure talkbox.voice uses."""
+    """RMS and peak of 16-bit mono PCM, the same measure chatbox.voice uses."""
     samples = array("h", pcm[: len(pcm) - len(pcm) % 2])
     if not samples:
         return 0.0, 0
@@ -77,7 +77,7 @@ def main() -> None:
 
     print(f"\nRecording {args.seconds:.0f} s at {RATE} Hz. Talk normally, from where a "
           "child would stand.")
-    # RawInputStream rather than sd.rec(), which needs NumPy; Talkbox doesn't depend on it.
+    # RawInputStream rather than sd.rec(), which needs NumPy; Chatbox doesn't depend on it.
     captured: list[bytes] = []
     try:
         with sd.RawInputStream(samplerate=RATE, channels=1, dtype="int16",
@@ -99,13 +99,13 @@ def main() -> None:
     try:
         import tomllib
 
-        threshold = float(tomllib.loads((ROOT / "talkbox.toml").read_text())
+        threshold = float(tomllib.loads((ROOT / "chatbox.toml").read_text())
                           .get("voice", {}).get("silence_rms", 200))
     except Exception:
         pass
 
     if rms < threshold:
-        print(f"  TOO QUIET. Talkbox treats anything under RMS {threshold:g} as silence "
+        print(f"  TOO QUIET. Chatbox treats anything under RMS {threshold:g} as silence "
               "and replies \"didn't catch that\" without calling speech-to-text.\n"
               "  Move closer, or raise the mic's gain: `alsamixer -c <card>`, F4 for "
               "capture, arrow up.")
@@ -151,13 +151,13 @@ def main() -> None:
 
     from dotenv import load_dotenv
 
-    from talkbox.config import load_settings
-    from talkbox.speech import SpeechError, make_stt
+    from chatbox.config import load_settings
+    from chatbox.speech import SpeechError, make_stt
 
     load_dotenv(ROOT / ".env")
-    sp = load_settings(ROOT / "talkbox.toml").speech
+    sp = load_settings(ROOT / "chatbox.toml").speech
     if sp is None:
-        sys.exit("talkbox.toml has no [speech] section.")
+        sys.exit("chatbox.toml has no [speech] section.")
 
     print(f"\nTranscribing with {sp.stt_name}…")
     chunks = [pcm[i:i + CHUNK * 2] for i in range(0, len(pcm), CHUNK * 2)]

@@ -8,8 +8,8 @@ import os
 import pytest
 from dotenv import load_dotenv
 
-from talkbox.config import load_settings
-from talkbox.pipeline import build_pipeline
+from chatbox.config import load_settings
+from chatbox.pipeline import build_pipeline
 from tests.conftest import ROOT, WED_NOON
 
 load_dotenv(ROOT / ".env")
@@ -22,7 +22,7 @@ pytestmark = [
 
 @pytest.fixture
 def pipeline(policy, counter):
-    p = build_pipeline(policy, load_settings(ROOT / "talkbox.toml"), counter)
+    p = build_pipeline(policy, load_settings(ROOT / "chatbox.toml"), counter)
     p.clock = lambda: WED_NOON
     return p
 
@@ -96,10 +96,10 @@ class CollectingSpeaker:
 
 @pytest.mark.skipif(not os.environ.get("GOOGLE_CLOUD_PROJECT"), reason="Google speech not set up")
 def test_voice_question_from_wav(pipeline):
-    from talkbox.speech import make_stt, make_tts
-    from talkbox.voice import VoiceTurn
+    from chatbox.speech import make_stt, make_tts
+    from chatbox.voice import VoiceTurn
 
-    sp = load_settings(ROOT / "talkbox.toml").speech
+    sp = load_settings(ROOT / "chatbox.toml").speech
     speaker = CollectingSpeaker()
     turn = VoiceTurn(pipeline, make_stt(sp.stt_name, sp.stt_settings),
                      make_tts(sp.tts_name, sp.tts_settings), speaker)

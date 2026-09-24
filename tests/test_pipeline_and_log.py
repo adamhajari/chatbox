@@ -2,8 +2,8 @@ import json
 
 import pytest
 
-from talkbox.pipeline import Classification, OutputVerdict, Pipeline
-from talkbox.policy import Policy
+from chatbox.pipeline import Classification, OutputVerdict, Pipeline
+from chatbox.policy import Policy
 from tests.conftest import WED_NOON, AllowAll, FakeProvider, PassAll, at
 
 
@@ -107,7 +107,7 @@ def test_output_check_extension_point(policy, log, make):
 
 
 def test_log_and_counter_persist_to_file(policy, tmp_path):
-    from talkbox.log import DailyCounter, ExchangeLog
+    from chatbox.log import DailyCounter, ExchangeLog
     path = tmp_path / "sub" / "t.db"
     counter, log = DailyCounter(path), ExchangeLog(path)
     Pipeline(policy, FakeProvider(), counter, log, clock=lambda: WED_NOON,

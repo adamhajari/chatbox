@@ -2,7 +2,7 @@ from datetime import timezone
 
 import pytest
 
-from talkbox.limits import check_limits, within_schedule
+from chatbox.limits import check_limits, within_schedule
 from tests.conftest import WED_NOON, at
 
 

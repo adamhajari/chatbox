@@ -6,10 +6,10 @@ from zoneinfo import ZoneInfo
 import pytest
 import yaml
 
-from talkbox.guardrails import Classification, OutputVerdict
-from talkbox.log import DailyCounter, ExchangeLog
-from talkbox.policy import Policy
-from talkbox.providers.base import ModelReply, ProviderError
+from chatbox.guardrails import Classification, OutputVerdict
+from chatbox.log import DailyCounter, ExchangeLog
+from chatbox.policy import Policy
+from chatbox.providers.base import ModelReply, ProviderError
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_POLICY = ROOT / "policies" / "default.yaml"

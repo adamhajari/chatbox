@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Prove the 2.2" SPI display is wired correctly, before any feature work.
 
-Talkbox's own screen adapter is separate; this only exercises the panel, so the wiring
+Chatbox's own screen adapter is separate; this only exercises the panel, so the wiring
 can be checked on its own. Run it on the Pi:
 
     .venv/bin/python scripts/screen_check.py
@@ -17,7 +17,7 @@ lines) alone. VCC goes to 3V3 — not 5 V.
 
 The display's LED pin is the backlight. Wired to 3V3 it is simply always on; on a GPIO
 (GPIO12 in this build) `--backlight 12` blinks it, so the pin can be proved before
-Talkbox relies on it. `--backlight-active-low` is for a P-MOSFET high-side switch,
+Chatbox relies on it. `--backlight-active-low` is for a P-MOSFET high-side switch,
 where the pin lights the backlight by going low.
 
 SPI has to be on first: `sudo raspi-config` -> Interface Options -> SPI -> Yes, then
@@ -66,7 +66,7 @@ What each failure looks like:
                                       --baudrate 16000000, and keep leads short.
   the picture is upside down or        the panel is mounted the other way up: find the
   sideways                            --rotation that looks right and put it in
-                                      talkbox.local.toml. 90 and 270 are landscape,
+                                      chatbox.local.toml. 90 and 270 are landscape,
                                       0 and 180 portrait.
   a white flash then nothing          RESET is floating: check GPIO27.
   backlight won't go dark             wrong polarity: try --backlight-active-low.
@@ -83,7 +83,7 @@ def main() -> None:
     ap.add_argument("--cs", type=int, choices=(0, 1), default=0, help="SPI0 chip select")
     ap.add_argument("--baudrate", type=int, default=24_000_000)
     ap.add_argument("--rotation", type=int, choices=(0, 90, 180, 270), default=90,
-                    help="90/270 = landscape (Talkbox's default), 0/180 = portrait")
+                    help="90/270 = landscape (Chatbox's default), 0/180 = portrait")
     ap.add_argument("--backlight", type=int, metavar="GPIO",
                     help="the backlight's GPIO pin, if it isn't wired to 3V3")
     ap.add_argument("--backlight-active-low", action="store_true",

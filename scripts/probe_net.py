@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Where does a Talkbox question's time actually go on this machine?
+"""Where does a Chatbox question's time actually go on this machine?
 
 `scripts/measure.py` shows that a question is slow; this shows why. It splits the cost
 of talking to the API into the parts that behave differently on a Raspberry Pi:

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Measure `talkbox chat` on this machine (PLAN.md phase 6: Pi 3B vs Pi 5).
+"""Measure `chatbox chat` on this machine (PLAN.md phase 6: Pi 3B vs Pi 5).
 
 Runs the real CLI the way a kid's question goes through it, so the numbers include
 interpreter start-up, imports, policy load and the live API calls.
@@ -8,8 +8,8 @@ interpreter start-up, imports, policy load and the live API calls.
     python scripts/measure.py -n 5            # repeat each question 5 times
     python scripts/measure.py "Why is the sky blue?" ...
 
-Prints per-step timings (the same ones `talkbox chat -v` shows), a summary, and peak
-memory of the talkbox process. Nothing is written to disk.
+Prints per-step timings (the same ones `chatbox chat -v` shows), a summary, and peak
+memory of the chatbox process. Nothing is written to disk.
 """
 
 from __future__ import annotations
@@ -37,10 +37,10 @@ STEP = re.compile(r"·\s+(\S+?):\s+(\S+)(?:\s+\[(\d+) ms\])?")
 def _child(args: list[str], stdin: str, timeout: float) -> tuple[subprocess.CompletedProcess, float]:
     """Run the CLI and report its peak resident memory in MB alongside the result."""
     env = {**os.environ, "PYTHONUNBUFFERED": "1"}
-    done = subprocess.run([sys.executable, "-m", "talkbox.cli", *args], cwd=ROOT, env=env,
+    done = subprocess.run([sys.executable, "-m", "chatbox.cli", *args], cwd=ROOT, env=env,
                           text=True, input=stdin, capture_output=True, timeout=timeout)
     # ru_maxrss is a high-water mark across every child so far, so it is reported once at
-    # the end as "the most memory a talkbox process used", not per session.
+    # the end as "the most memory a chatbox process used", not per session.
     peak = resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss
     # Linux reports kilobytes, macOS bytes.
     return done, peak / 1024 if sys.platform.startswith("linux") else peak / 1024 / 1024
@@ -55,12 +55,12 @@ def startup_seconds(timeout: float) -> float:
     done, _ = _child(["chat"], "", timeout)
     elapsed = time.monotonic() - started
     if "kid>" not in done.stdout:
-        sys.exit(f"`talkbox chat` didn't reach its prompt:\n{done.stdout}{done.stderr}")
+        sys.exit(f"`chatbox chat` didn't reach its prompt:\n{done.stdout}{done.stderr}")
     return elapsed
 
 
 def run(questions: list[str], timeout: float) -> tuple[list[dict], float]:
-    """One `talkbox chat -v` session asking every question in turn."""
+    """One `chatbox chat -v` session asking every question in turn."""
     stdin = "".join(q + "\n" for q in questions) + "quit\n"
     done, peak_mb = _child(["chat", "-v"], stdin, timeout)
 
@@ -120,7 +120,7 @@ def main() -> None:
         if ms:
             print(f"  {name:<20} : median {statistics.median(ms):.0f} ms "
                   f"(min {min(ms)}, max {max(ms)})")
-    print(f"  peak memory (RSS)    : {max(peaks):.0f} MB for one talkbox process")
+    print(f"  peak memory (RSS)    : {max(peaks):.0f} MB for one chatbox process")
 
 
 if __name__ == "__main__":

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Prove the button and the status LED are wired correctly, before any audio exists.
 
-Talkbox's own hardware adapter comes later; this only exercises the pins, so the
+Chatbox's own hardware adapter comes later; this only exercises the pins, so the
 wiring can be checked on its own. Run it on the Pi:
 
     .venv/bin/python scripts/gpio_check.py                  # common cathode LED
@@ -74,7 +74,7 @@ def main() -> None:
     print("   If the colours came up in the wrong order, swap the --red/--green/--blue "
           "pins to match.\n")
 
-    print("2. The three states Talkbox will show.")
+    print("2. The three states Chatbox will show.")
     for name, colour in STATES:
         print(f"   {name}")
         led.value = colour

@@ -1,5 +1,5 @@
-from talkbox.policy import Policy
-from talkbox.prompt import compile_system_prompt
+from chatbox.policy import Policy
+from chatbox.prompt import compile_system_prompt
 
 
 def test_prompt_contains_policy(policy):

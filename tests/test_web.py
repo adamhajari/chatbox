@@ -3,10 +3,10 @@ import re
 import pytest
 from fastapi.testclient import TestClient
 
-from talkbox.policy import WEEKDAYS, Policy
-from talkbox.policy_store import PolicyStore
-from talkbox.web.app import _is_local_client, create_app
-from talkbox.web.form import KINDS, parse_form, policy_to_data
+from chatbox.policy import WEEKDAYS, Policy
+from chatbox.policy_store import PolicyStore
+from chatbox.web.app import _is_local_client, create_app
+from chatbox.web.form import KINDS, parse_form, policy_to_data
 from tests.conftest import TEST_POLICY
 
 
@@ -223,8 +223,8 @@ def test_days_keep_week_order(store):
 
 # ---- "Right now": today's count, reset, pause -----------------------------------
 
-from talkbox.log import Controls, DailyCounter  # noqa: E402
-from talkbox.pipeline import PAUSED_REPLY, Pipeline  # noqa: E402
+from chatbox.log import Controls, DailyCounter  # noqa: E402
+from chatbox.pipeline import PAUSED_REPLY, Pipeline  # noqa: E402
 from tests.conftest import WED_NOON, AllowAll, FakeProvider, PassAll  # noqa: E402
 
 TODAY = WED_NOON.date().isoformat()
@@ -318,7 +318,7 @@ def test_status_json_follows_questions(live, store):
 
 # ---- today's questions and answers ------------------------------------------------
 
-from talkbox.log import ExchangeLog  # noqa: E402
+from chatbox.log import ExchangeLog  # noqa: E402
 
 
 def test_todays_exchanges_are_listed_newest_first(store, db, tmp_path):
@@ -390,7 +390,7 @@ def test_volume_that_is_not_a_number_is_refused(live):
 
 def test_volume_survives_a_restart(tmp_path):
     """It lives in the database, like the pause switch, so a reboot doesn't undo it."""
-    from talkbox.log import Controls
+    from chatbox.log import Controls
 
     db = tmp_path / "t.db"
     controls = Controls(db)

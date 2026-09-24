@@ -1,5 +1,5 @@
-# Talkbox starting policy for a household age of 6. Parents: review every line.
-# Bump policy_version whenever you change anything. Validate with: talkbox check-policy
+# Chatbox starting policy for a household age of 6. Parents: review every line.
+# Bump policy_version whenever you change anything. Validate with: chatbox check-policy
 schema_version: 2
 policy_version: 1
 household_age: 15

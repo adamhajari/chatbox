@@ -6,10 +6,10 @@ import pytest
 import yaml
 from pydantic import ValidationError
 
-from talkbox.guardrails import Classification
-from talkbox.pipeline import Pipeline
-from talkbox.policy import load_policy
-from talkbox.policy_store import PolicyStore, StaleEditError
+from chatbox.guardrails import Classification
+from chatbox.pipeline import Pipeline
+from chatbox.policy import load_policy
+from chatbox.policy_store import PolicyStore, StaleEditError
 from tests.conftest import TEST_POLICY, WED_NOON, AllowAll, FakeProvider, PassAll
 
 

@@ -1,4 +1,4 @@
-# Talkbox hardware wiring
+# Chatbox hardware wiring
 
 The button, status light and picture screen for the Raspberry Pi build. The button and
 LED were wired and verified on 2026-09-22; the screen's pinout was chosen on 2026-09-23
@@ -122,7 +122,7 @@ the spoken answer and is never needed to understand it.
 
 **What it shows and when.** The picture goes up as the answer starts being spoken and
 comes down when the turn ends; the rest of the time the screen is blank. Blank rather
-than an idle picture, because a screen lit only while Talkbox speaks tells a child which
+than an idle picture, because a screen lit only while Chatbox speaks tells a child which
 of the things on the front panel is the one talking — and it can't sit showing a
 jellyfish half an hour after anyone asked about one.
 
@@ -171,7 +171,7 @@ short — long SPI leads are the usual cause of a noisy picture at 24 MHz. The p
 mounted **landscape**, 320 wide by 240 tall (`rotation = 90`), because a photograph of a
 thing is usually wider than it is tall and a portrait panel letterboxes most lead images
 heavily. If it ends up the other way round in the enclosure, set `rotation` in
-`talkbox.local.toml` rather than rewiring — 90 and 270 are landscape, 0 and 180 portrait.
+`chatbox.local.toml` rather than rewiring — 90 and 270 are landscape, 0 and 180 portrait.
 Pictures are sized to match, and the cache is keyed by that size, so changing it refetches
 rather than stretching what is already there.
 
@@ -224,7 +224,7 @@ uncommented in **`/boot/firmware/config.txt`** — on Bookworm that is the file 
 read, and an edit to the older `/boot/config.txt` does nothing.
 
 `adafruit-blinka` and `adafruit-circuitpython-rgb-display` are MIT, and Pillow (which
-Talkbox installs everywhere, to scale the picture) is MIT-CMU — all fine under the
+Chatbox installs everywhere, to scale the picture) is MIT-CMU — all fine under the
 licensing constraint in PLAN.md section 8a. Both are imported lazily, so a laptop that
 never enables the screen never needs them.
 
@@ -277,11 +277,11 @@ will be.
 | permission denied on `/dev/spidev0.0` | `sudo usermod -aG spi $USER`, then log out and back in |
 | colours named wrong (red shows blue) | an ILI9341 clone with BGR order — harmless for photos, but say so and the driver gets a flag |
 | noise, torn lines, flicker | SPI too fast or leads too long — `--baudrate 16000000` |
-| the blue square isn't top left | the panel is mounted the other way up — find the `--rotation` that looks right and put it in `talkbox.local.toml` |
+| the blue square isn't top left | the panel is mounted the other way up — find the `--rotation` that looks right and put it in `chatbox.local.toml` |
 | a white flash then nothing | RESET is floating — check GPIO27 |
 | the backlight never goes dark | wrong polarity — add `--backlight-active-low` |
 | the backlight never comes back on | GPIO12 can't supply the current — it needs the P-MOSFET switch above |
-| the backlight is on before Talkbox starts | with a MOSFET, the gate pull-up is too weak for GPIO12's idle-low default — use 10 kΩ |
+| the backlight is on before Chatbox starts | with a MOSFET, the gate pull-up is too weak for GPIO12's idle-low default — use 10 kΩ |
 
 Once the panel itself is proved, `scripts/screen_demo.py` takes it the rest of the way —
 the real classifier, a real Wikipedia lookup and the real display, with no microphone or
@@ -293,14 +293,14 @@ speaker, which is the only end-to-end test available until the audio hardware is
 .venv/bin/python scripts/screen_demo.py --subject octopus     # skips the model call
 ```
 
-Then `talkbox chat -v` drives the screen from real questions typed at the keyboard,
-once `[screen] enabled = true` is in `talkbox.local.toml`. The picture appears a moment
+Then `chatbox chat -v` drives the screen from real questions typed at the keyboard,
+once `[screen] enabled = true` is in `chatbox.local.toml`. The picture appears a moment
 after the answer, since nothing waits for it and there is no speech to cover the gap.
 
 **Not yet run on the bench.** The pinout above is the intended wiring (PLAN.md D25
 reserved SPI0 plus GPIO25/27 for exactly this), and it is what the script and
-`talkbox.toml` default to, but nothing has been connected yet. Run this before
-`talkbox talk`, and correct this table and the pinout if the panel disagrees.
+`chatbox.toml` default to, but nothing has been connected yet. Run this before
+`chatbox talk`, and correct this table and the pinout if the panel disagrees.
 
 ---
 
@@ -350,7 +350,7 @@ speaker-test -c2 -t wav         # noise from the speaker
 | no hifiberry card in `aplay -l` | the overlay didn't load — check `config.txt` and that you rebooted |
 | card appears, no sound | check the speaker terminals, and `alsamixer` volume on the new card |
 | a lightning bolt, or the Pi reboots when it gets loud | power, not the amp: the MAX98357A pulls over an amp in peaks at 5 V into 4 Ω. Use the 2.5 A supply |
-| Talkbox plays through the wrong device | set `output_device` in `talkbox.local.toml` to a name from `scripts/mic_check.py` |
+| Chatbox plays through the wrong device | set `output_device` in `chatbox.local.toml` to a name from `scripts/mic_check.py` |
 
 Getting a pin wrong here is the likely first failure, and it doesn't announce itself:
 the card still enumerates, ALSA still accepts frames, and the result is silence or a
@@ -361,7 +361,7 @@ buzz. Check the **physical** numbers again before suspecting anything else.
 **The MAX98357A has no hardware volume control**, so `alsamixer -c 1` reports "This
 sound device does not have any controls". That is correct, not a fault — it is a plain
 I2S DAC. Volume has to be done in software, and ALSA's `softvol` plugin is the tidy way,
-because it creates a real `Master` that `alsamixer`, `amixer` and Talkbox all share.
+because it creates a real `Master` that `alsamixer`, `amixer` and Chatbox all share.
 
 `/etc/asound.conf`:
 
@@ -404,7 +404,7 @@ which pointed capture at the amplifier and playback at the microphone. `hw:CARD=
 and `plughw:CARD=sndrpihifiberry` are stable; `cat /proc/asound/cards` lists the IDs.
 Same for the tools: `alsamixer -c Device`, `amixer -c sndrpihifiberry`.
 
-Talkbox itself should name `default` for both directions, in `talkbox.local.toml`:
+Chatbox itself should name `default` for both directions, in `chatbox.local.toml`:
 
 ```toml
 [voice]
@@ -469,13 +469,13 @@ the muted state is what comes back at the next boot.
 
 ## Still to do
 
-- `src/talkbox/audio/pi.py`: the Pi adapter — button as push-to-talk in place of the
+- `src/chatbox/audio/pi.py`: the Pi adapter — button as push-to-talk in place of the
   laptop's spacebar, the LED driven from the pipeline's states, USB microphone capture and
   I2S output. Needs the mic and speaker in hand, since `VoiceTurn` wants an audio iterable
   and a `Speaker`.
 - Measure the backlight current, wire the screen (with the P-MOSFET if the measurement
   calls for it), run `scripts/screen_check.py --backlight 12`, then turn it on with
-  `[screen] enabled = true` and `backlight_gpio = 12` in `talkbox.local.toml`.
+  `[screen] enabled = true` and `backlight_gpio = 12` in `chatbox.local.toml`.
 - Enclosure: cardboard first, 3D printed later (PLAN.md D14). The 28.5 mm button hole and
   a 5 mm LED hole are the only ones the front panel needs so far, plus a window for the
   screen: the visible area is about 34 x 45 mm, on a board about 40 x 62 mm.
