@@ -1,12 +1,32 @@
 # Chatbox hardware wiring
 
-The button, status light and picture screen for the Raspberry Pi build. The button and
-LED were wired and verified on 2026-09-22; the screen's pinout was chosen on 2026-09-23
-and is **not yet verified on the bench** (see "Verifying it"). The amplifier and speaker
-were wired and verified on 2026-09-23.
+The button, status light, amplifier and speaker, microphone and picture screen for the
+Raspberry Pi build. The button and LED were wired and verified on 2026-09-22, and the
+amplifier, speaker and USB microphone on 2026-09-23. The screen's pinout was chosen on
+2026-09-23 and is **not yet verified on the bench** (see "Verifying it").
 
 For getting the software onto the Pi in the first place, see
 [pi-setup.md](pi-setup.md).
+
+---
+
+## Parts
+
+| Component | Part | Connects by |
+|---|---|---|
+| Computer | Raspberry Pi 3 Model B v1.2 (1 GB) | — |
+| Power supply | 5 V, 2.5 A micro-USB | micro-USB |
+| Push-to-talk button | Philmore 30-781 SPDT arcade button, 28.5 mm hole | GPIO |
+| Status light | 5 mm common-anode RGB LED, with three 220 Ω resistors | GPIO |
+| Amplifier | NULLLAB MAX98357A I2S amplifier, from the amp & speaker kit | GPIO (I2S) |
+| Speaker | the kit's own small 4 Ω, 3 W speaker | amplifier speaker output |
+| Microphone | SuziePi USB 2.0 mini microphone | USB |
+| Picture screen | 2.2" 240×320 SPI TFT, ILI9341 controller (red PCB) | GPIO (SPI) |
+
+Wiring is female-to-female DuPont jumpers, cut and soldered at the component end (see
+"Assembling it"), plus 2.8 mm push-on spade connectors for the button. The screen may
+also need a P-MOSFET to switch its backlight, depending on the current it draws (see
+"The screen").
 
 ---
 
@@ -14,6 +34,12 @@ For getting the software onto the Pi in the first place, see
 
 Physical pin numbers are the ones you count on the header; GPIO numbers are what the
 code uses. They are not the same, and `gpiozero` wants the GPIO number.
+
+![Raspberry Pi 40-pin GPIO header, showing each physical pin number and its GPIO number or function](images/pi-gpio-header.png)
+
+*The 40-pin header. The board drawn is a Pi 4, but the header is the same on the Pi 3B.
+Image: [Raspberry Pi documentation](https://www.raspberrypi.com/documentation/computers/raspberry-pi.html#gpio),
+© Raspberry Pi Ltd, [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/).*
 
 | Signal | GPIO | Physical pin | Goes to |
 |---|---|---|---|
@@ -23,6 +49,11 @@ code uses. They are not the same, and `gpiozero` wants the GPIO number.
 | LED green | GPIO23 | 16 | 220 Ω → green leg |
 | LED blue | GPIO24 | 18 | 220 Ω → blue leg |
 | LED common | — | 1 (3V3) | long leg, **no resistor** |
+| Amp VIN | — | 2 (5V) | MAX98357A VIN, **5 V, not 3.3 V** |
+| Amp GND | — | 6 (GND) | MAX98357A GND |
+| Amp BCLK | GPIO18 | 12 | I2S bit clock |
+| Amp LRC | GPIO19 | 35 | I2S word select |
+| Amp DIN | GPIO21 | 40 | I2S data |
 | Screen VCC | — | 17 (3V3) | **3.3 V, not 5 V** |
 | Screen GND | — | 20 (GND) | |
 | Screen CS | GPIO8 (CE0) | 24 | hardware SPI0 |
@@ -44,9 +75,11 @@ dimming or fading the backlight stays possible later. GPIO7 (pin 26) would have 
 tidier to wire, but it is SPI0's CE1 and the default SPI overlay claims it; freeing it
 needs `dtoverlay=spi0-1cs` and gives up hardware PWM.
 
-**Reserved — don't use for anything else.** GPIO18, GPIO19 and GPIO21 are the I2S lines
-(BCK, LRCLK, DIN) the MAX98357A amplifier will need. Everything above was chosen to keep
-them free so the button and LED never have to be rewired.
+**GPIO18, GPIO19 and GPIO21 belong to the amplifier's I2S bus** — don't reuse them. The
+button, LED and screen pins were chosen to keep them free. Note that GPIO19 and GPIO21
+are physical pins 35 and 40, *not* 19 and 21, which are the screen's SPI lines.
+
+The microphone is USB, so it takes no header pins.
 
 ---
 
@@ -56,6 +89,8 @@ A 5 mm **common-anode** RGB LED: the long leg goes to **3V3**, and a GPIO pulled
 lights that colour. (Common-cathode parts exist and work the other way round — long leg
 to GND, GPIO high to light. Check yours before wiring: put 220 Ω from 3V3 to a short leg
 and touch the long leg to GND. If it lights, it's common cathode.)
+
+![RGB LED wiring: the common anode leg straight to 3V3 (pin 1); red, green and blue each through 220 Ω to GPIO22, GPIO23 and GPIO24 (pins 15, 16, 18)](images/rgb-led.svg)
 
 `gpiozero` handles the inversion with `active_high=False`, so the only difference in code
 is that one flag. **The adapter has to carry it as a setting**, not a constant — a
@@ -96,11 +131,235 @@ button is *held*.
 
 ---
 
+## The amplifier and speaker
+
+A MAX98357A I2S amplifier driving the small 4 Ω, 3 W speaker that came in the same kit
+(PLAN.md D24). Wire it by the
+**physical** pin numbers below: GPIO19 and GPIO21 are *not* physical pins 19 and 21 —
+those two are SPI lines reserved for the screen, and confusing them is the easiest
+mistake to make on this build.
+
+| Amp pin | Physical pin | GPIO | What it is |
+|---|---|---|---|
+| VIN | 2 | — | 5 V, not 3.3 V: a 4 Ω speaker wants the power |
+| GND | 6 | — | |
+| BCLK | 12 | GPIO18 | bit clock |
+| LRC / LRCLK | 35 | GPIO19 | left-right (word select) clock |
+| DIN | 40 | GPIO21 | serial data in |
+| GAIN | — | — | leave unconnected for the 9 dB default |
+| SD | — | — | leave unconnected: on, and mono (L+R)/2 |
+
+The speaker goes to the amplifier's speaker output. **Neither speaker wire goes to ground** —
+the output is bridge-tied, and grounding one side shorts the amplifier.
+
+### Enabling it
+
+Two edits to `/boot/firmware/config.txt`, one changed line and one new one:
+
+1. **Change** the existing `dtparam=audio=on` line, near the top of the file, to:
+
+   ```
+   dtparam=audio=off
+   ```
+
+2. **Add** this line at the end of the file, after the `[all]` line:
+
+   ```
+   dtoverlay=hifiberry-dac
+   ```
+
+Then reboot. **This disables the 3.5 mm headphone jack**, which is PWM-driven and gives
+way to the I2S device. The headphones stop working the moment the speaker starts. To
+get them back, set `dtparam=audio=on` again, comment out the `dtoverlay` line, and
+reboot.
+
+### Verifying it
+
+```sh
+aplay -l                        # expect a snd_rpi_hifiberry_dac card
+speaker-test -c2 -t wav         # noise from the speaker
+.venv/bin/python scripts/mic_check.py --playback
+```
+
+| What you see | What it means |
+|---|---|
+| no hifiberry card in `aplay -l` | the overlay didn't load — check `config.txt` and that you rebooted |
+| card appears, no sound | check the speaker terminals, and `alsamixer` volume on the new card |
+| a lightning bolt, or the Pi reboots when it gets loud | power, not the amp: the MAX98357A pulls over an amp in peaks at 5 V into 4 Ω. Use the 2.5 A supply |
+| Chatbox plays through the wrong device | set `output_device` in `chatbox.local.toml` to a name from `scripts/mic_check.py` |
+
+Getting a pin wrong here is the likely first failure, and it doesn't announce itself:
+the card still enumerates, ALSA still accepts frames, and the result is silence or a
+buzz. Check the **physical** numbers again before suspecting anything else.
+
+### Volume
+
+**The MAX98357A has no hardware volume control.** It is a plain I2S DAC, so until the
+steps below are done, `alsamixer -c sndrpihifiberry` reports "This sound device does
+not have any controls". That is correct, not a fault. Volume has to be done in software,
+with ALSA's `softvol` plugin, which creates a real `Master` control that `alsamixer`,
+`amixer` and Chatbox's settings page all share.
+
+**1. Create `/etc/asound.conf`.** It doesn't exist on a fresh Pi. Open it with
+`sudo nano /etc/asound.conf` and paste in exactly this:
+
+```
+pcm.!default {
+    type         asym
+    playback.pcm "softvol"
+    capture.pcm  "capture_plug"
+}
+
+pcm.capture_plug {
+    type      plug
+    slave.pcm "hw:CARD=Device"
+}
+
+pcm.softvol {
+    type      softvol
+    slave.pcm "plughw:CARD=sndrpihifiberry"
+    control {
+        name  "Master"
+        card  "sndrpihifiberry"
+    }
+    min_dB -51.0
+    max_dB   0.0
+}
+
+ctl.!default {
+    type hw
+    card "sndrpihifiberry"
+}
+```
+
+**2. Point Chatbox at the default device.** Add this to `chatbox.local.toml`:
+
+```toml
+[voice]
+input_device = "default"
+output_device = "default"
+```
+
+**3. Play something once.** The `Master` control doesn't exist until the device is
+first opened, so it won't show up in `alsamixer` before this:
+
+```sh
+speaker-test -c2 -t wav -l1
+```
+
+**4. Set the volume and save it.** Levels reset at boot unless stored:
+
+```sh
+alsamixer                  # arrow keys to set Master, Esc to leave
+sudo alsactl store
+```
+
+**5. Set the ceiling.** `max_dB` caps how loud the device can ever go, in the one place
+a child or a stray `amixer` call can't override. With `max_dB` at 0, turn `Master` to
+100% and hear what full scale sounds like in the room. Then lower `max_dB` in
+`/etc/asound.conf` until 100% *is* the loudest you want it, and run
+`sudo alsactl store` again. This is a hearing-safety setting on a box a small child
+holds near their face.
+
+#### Why it's set up this way
+
+**`/etc/asound.conf` pins the default device**, which it has to: turning the onboard
+audio off removes the card everything used to default to, so anything asking for "the
+default" would otherwise land on HDMI or fail. It covers `aplay`, `speaker-test` and
+PortAudio in one place. `pcm.!default` is an `asym` device: playback goes through
+`softvol` to the amplifier, capture goes to the USB mic.
+
+**Chatbox has to ask for `default` by name** (step 2). Otherwise it asks PortAudio for
+*its* default, which is a raw `hw:` device that does no resampling. The mic can't do the
+pipeline's 16 kHz and the DAC can't do the 24 kHz text-to-speech produces, so both
+directions fail with `Invalid sample rate`. Going through `default` puts the `asym`
+device and its `plug` conversion in the path.
+
+**Cards are addressed by ID, never by number.** Card numbers are assigned in probe order
+and can swap between boots. If `sndrpihifiberry` and the USB mic trade places, anything
+addressed by number points capture at the amplifier and playback at the microphone.
+`hw:CARD=Device` and `plughw:CARD=sndrpihifiberry` are stable; `cat /proc/asound/cards`
+lists the IDs. Same for the tools: `alsamixer -c Device`, `amixer -c sndrpihifiberry`.
+
+---
+
+## The microphone
+
+A plug-and-play USB mic: no driver, no wiring. Setting it up is plugging it in, checking
+the Pi sees it, and setting its level.
+
+**1. Plug it in and check the Pi sees it.**
+
+```sh
+cat /proc/asound/cards
+```
+
+Look for a card with the ID `Device` (the word in square brackets). That ID is how
+everything refers to the mic. Ignore the card *number* in front of it: it changes
+between boots.
+
+**2. Make sure `/etc/asound.conf` is in place.** If you followed the amplifier's Volume
+steps above, it already is and there's nothing more to configure. The `capture_plug`
+section in that file is what makes the mic usable (see "Why" below).
+
+**3. Check the level**, speaking from where a child will stand, not from where you are:
+
+```sh
+.venv/bin/python scripts/mic_check.py
+```
+
+It records five seconds and reports RMS and peak. Aim for:
+
+- **RMS 300–1000** speaking normally. Below 200 (the `silence_rms` setting in
+  `chatbox.toml`), Chatbox answers "didn't catch that" without ever calling
+  speech-to-text, so a quiet mic looks like a broken assistant.
+- **Peak under about 20000** when someone is excited. Clipping wrecks recognition far
+  worse than a low level does, so err slightly quiet: the threshold is adjustable,
+  clipping isn't recoverable.
+
+**4. If it's off, adjust the capture level** and run step 3 again:
+
+```sh
+amixer -c Device scontrols     # list what this mic has
+alsamixer -c Device            # F4 for the capture view, arrow keys to set, Esc to leave
+```
+
+**5. Save the level.** Unsaved changes revert at the next boot:
+
+```sh
+sudo alsactl store
+```
+
+Verified 2026-09-23 at capture 13/16 (81%, 19.34 dB): RMS 1510, peak 10981.
+
+### If RMS and peak are exactly 0
+
+In `alsamixer`'s capture view, **Space** toggles whether an item is a capture source and
+**M** mutes it, and both are easy to hit while arrowing the level. Exactly 0 means
+digital silence, not a quiet signal: even a badly placed mic picks up some noise. To fix
+it:
+
+```sh
+amixer -c Device sget Mic      # look for [off]
+amixer -c Device sset Mic cap  # turn capture back on
+sudo alsactl store             # or the muted state comes back at the next boot
+```
+
+### Why it needs `capture_plug`
+
+**The mic does not do 16 kHz**, which is the rate the voice pipeline uses. Opening it
+directly (`hw:0,0`) fails with `Invalid sample rate [PaErrorCode -9997]`. It has to go
+through ALSA's `plug` layer, which resamples: that's the `capture_plug` section in
+`/etc/asound.conf`. `pcm.!default` is an `asym` device for the same reason, so playback
+goes to the amplifier and capture goes to the mic. A `!default` that only names a
+playback device leaves capture with nowhere to go.
+
+---
+
 ## The screen
 
 A 2.2" TFT, 240x320, SPI, on a red PCB marked `QVGA 2.2 TFT SPI 240*320` — an ILI9341
-controller. Found in the garage, so it cost nothing (PLAN.md D28). **Confirm the
-controller before building on it**: `scripts/screen_check.py` drives it as an ILI9341,
+controller. **Confirm the controller before building on it**: `scripts/screen_check.py` drives it as an ILI9341,
 and a panel that stays white while the backlight is on is the symptom of a different
 controller (an ILI9325 or an ST7789 want a different driver).
 
@@ -117,8 +376,8 @@ transistor between the pin and the backlight rather than a direct connection.
 **MISO stays unconnected.** The driver only writes, and leaving it off keeps one more
 pin free.
 
-Pictures only, never text (D28): neither kid reads fluently, so the screen supplements
-the spoken answer and is never needed to understand it.
+Pictures only, never text (D28): young children may not read yet, so the screen
+supplements the spoken answer and is never needed to understand it.
 
 **What it shows and when.** The picture goes up as the answer starts being spoken and
 comes down when the turn ends; the rest of the time the screen is blank. Blank rather
@@ -130,13 +389,14 @@ jellyfish half an hour after anyone asked about one.
 
 ## Assembling it
 
-Verified on a breadboard first (`scripts/gpio_check.py`), then soldered. The rule
+The button and LED were verified on a breadboard first (`scripts/gpio_check.py`), then
+soldered. The rule
 throughout: **solder at the components, never at the Pi's header** — the header is the
 only way to take the thing apart again.
 
 **Wires.** Cut female-to-female DuPont jumpers in half and solder the cut end to the
 component. That leaves a proper female connector at the Pi end with no crimp tool
-involved, and the whole assembly unplugs. Five wires: two for the button, four for the
+involved, and the whole assembly unplugs. Six wires: two for the button, four for the
 LED.
 
 **Before cutting anything**, mark the LED legs R / A / G / B with tape. The common leg is
@@ -284,8 +544,8 @@ will be.
 | the backlight is on before Chatbox starts | with a MOSFET, the gate pull-up is too weak for GPIO12's idle-low default — use 10 kΩ |
 
 Once the panel itself is proved, `scripts/screen_demo.py` takes it the rest of the way —
-the real classifier, a real Wikipedia lookup and the real display, with no microphone or
-speaker, which is the only end-to-end test available until the audio hardware is wired:
+the real classifier, a real Wikipedia lookup and the real display, with the microphone
+and speaker left out so a screen problem can't hide behind an audio one:
 
 ```sh
 .venv/bin/python scripts/screen_demo.py --loop
@@ -304,175 +564,8 @@ reserved SPI0 plus GPIO25/27 for exactly this), and it is what the script and
 
 ---
 
-## The amplifier and speaker
-
-A MAX98357A I2S amplifier driving a 3" 4 Ω speaker (PLAN.md D24). Wire it by the
-**physical** pin numbers below: GPIO19 and GPIO21 are *not* physical pins 19 and 21 —
-those two are SPI lines reserved for the screen, and confusing them is the easiest
-mistake to make on this build.
-
-| Amp pin | Physical pin | GPIO | What it is |
-|---|---|---|---|
-| VIN | 2 | — | 5 V, not 3.3 V: a 4 Ω speaker wants the power |
-| GND | 6 | — | |
-| BCLK | 12 | GPIO18 | bit clock |
-| LRC / LRCLK | 35 | GPIO19 | left-right (word select) clock |
-| DIN | 40 | GPIO21 | serial data in |
-| GAIN | — | — | leave unconnected for the 9 dB default |
-| SD | — | — | leave unconnected: on, and mono (L+R)/2 |
-
-The speaker goes to the two screw terminals. **Neither speaker wire goes to ground** —
-the output is bridge-tied, and grounding one side shorts the amplifier.
-
-### Enabling it
-
-In `/boot/firmware/config.txt`:
-
-```
-dtparam=audio=off
-dtoverlay=hifiberry-dac
-```
-
-then reboot. **This disables the 3.5 mm headphone jack**, which is PWM-driven and gives
-way to the I2S device. The headphones stop working the moment the speaker starts.
-Comment both lines out and reboot to get them back.
-
-### Verifying it
-
-```sh
-aplay -l                        # expect a snd_rpi_hifiberry_dac card
-speaker-test -c2 -t wav         # noise from the speaker
-.venv/bin/python scripts/mic_check.py --playback
-```
-
-| What you see | What it means |
-|---|---|
-| no hifiberry card in `aplay -l` | the overlay didn't load — check `config.txt` and that you rebooted |
-| card appears, no sound | check the speaker terminals, and `alsamixer` volume on the new card |
-| a lightning bolt, or the Pi reboots when it gets loud | power, not the amp: the MAX98357A pulls over an amp in peaks at 5 V into 4 Ω. Use the 2.5 A supply |
-| Chatbox plays through the wrong device | set `output_device` in `chatbox.local.toml` to a name from `scripts/mic_check.py` |
-
-Getting a pin wrong here is the likely first failure, and it doesn't announce itself:
-the card still enumerates, ALSA still accepts frames, and the result is silence or a
-buzz. Check the **physical** numbers again before suspecting anything else.
-
-### Volume
-
-**The MAX98357A has no hardware volume control**, so `alsamixer -c 1` reports "This
-sound device does not have any controls". That is correct, not a fault — it is a plain
-I2S DAC. Volume has to be done in software, and ALSA's `softvol` plugin is the tidy way,
-because it creates a real `Master` that `alsamixer`, `amixer` and Chatbox all share.
-
-`/etc/asound.conf`:
-
-```
-pcm.!default {
-    type         asym
-    playback.pcm "softvol"
-    capture.pcm  "capture_plug"
-}
-
-pcm.capture_plug {
-    type      plug
-    slave.pcm "hw:CARD=Device"
-}
-
-pcm.softvol {
-    type      softvol
-    slave.pcm "plughw:CARD=sndrpihifiberry"
-    control {
-        name  "Master"
-        card  "sndrpihifiberry"
-    }
-    min_dB -51.0
-    max_dB   0.0
-}
-
-ctl.!default {
-    type hw
-    card "sndrpihifiberry"
-}
-```
-
-This pins the default device, which it has to: turning the onboard audio off removes the
-card everything used to default to, so anything asking for "the default" would otherwise
-land on HDMI or fail. It covers `aplay`, `speaker-test` and PortAudio in one place.
-
-**Address cards by ID, never by number.** Card numbers are assigned in probe order and
-swap between boots — `sndrpihifiberry` and the USB mic traded places on a reboot here,
-which pointed capture at the amplifier and playback at the microphone. `hw:CARD=Device`
-and `plughw:CARD=sndrpihifiberry` are stable; `cat /proc/asound/cards` lists the IDs.
-Same for the tools: `alsamixer -c Device`, `amixer -c sndrpihifiberry`.
-
-Chatbox itself should name `default` for both directions, in `chatbox.local.toml`:
-
-```toml
-[voice]
-input_device = "default"
-output_device = "default"
-```
-
-Without that it asks PortAudio for *its* default, which is a raw `hw:` device that does
-no resampling — the mic can't do the pipeline's 16 kHz and the DAC can't do the 24 kHz
-text-to-speech produces, so both directions fail with `Invalid sample rate`. Going
-through `default` puts the `asym` device and its `plug` conversion in the path.
-
-The `Master` control doesn't exist until the device is first opened, so play something
-before looking for it. Then `sudo alsactl store` to survive a reboot.
-
-**`max_dB` is a ceiling worth setting deliberately.** It caps how loud the device can
-ever go, in the one place a child or a stray `amixer` call can't override. Wire it at 0,
-hear what full scale sounds like in the room, then lower `max_dB` until 100% *is* the
-loudest you want it, and store it. This is a hearing-safety setting on a box a small
-child holds near their face.
-
-
-## The microphone
-
-A plug-and-play USB mic, no driver needed. It appears as its own card, ID `Device`
-(`cat /proc/asound/cards`). Refer to it by that ID: its *number* changes between boots.
-
-**It does not do 16 kHz**, which is the rate the voice pipeline uses. Opening `hw:0,0`
-directly fails with `Invalid sample rate [PaErrorCode -9997]`. It has to go through
-ALSA's `plug` layer, which resamples — hence `capture_plug` in the `/etc/asound.conf`
-above, and `pcm.!default` being an `asym` device: playback to the amplifier, capture to
-the mic. A `!default` that only names a playback device leaves capture with nowhere to
-go.
-
-### Level
-
-`scripts/mic_check.py` reports RMS and peak against the `silence_rms` threshold the
-pipeline actually uses (200 by default). Anything below that gets "didn't catch that"
-without speech-to-text ever being called, so a quiet mic looks like a broken assistant.
-
-What to aim for, measured from where a child will stand, not from where you are:
-
-- **RMS 300–1000** speaking normally.
-- **Peak under about 20000** when someone is excited. Clipping wrecks recognition far
-  worse than a low level does, so err slightly quiet — the threshold is adjustable,
-  clipping isn't recoverable.
-
-Verified 2026-09-23 at capture 13/16 (81%, 19.34 dB): RMS 1510, peak 10981.
-
-```sh
-amixer -c Device scontrols     # what this mic actually has
-alsamixer -c Device            # F4 for capture, arrow to set, Esc
-sudo alsactl store             # levels are a snapshot; unstored changes revert at boot
-```
-
-**The trap:** in `alsamixer`'s capture view, **Space** toggles whether an item is a
-capture source and **M** mutes, and both are easy to hit while arrowing the level. The
-symptom is RMS and peak of exactly **0** — digital silence rather than a quiet signal,
-since even a badly placed mic produces some noise. Check with `amixer -c Device sget Mic`
-and look for `[off]`; `amixer -c Device sset Mic cap` turns it back on. Store again afterwards, or
-the muted state is what comes back at the next boot.
-
 ## Still to do
 
-- `src/chatbox/audio/pi.py`: the Pi adapter — button as push-to-talk in place of the
-  laptop's spacebar, the LED driven from the pipeline's states, USB microphone capture and
-  I2S output. Needs the mic and speaker in hand, since `VoiceTurn` wants an audio iterable
-  and a `Speaker`.
 - Measure the backlight current, wire the screen (with the P-MOSFET if the measurement
   calls for it), run `scripts/screen_check.py --backlight 12`, then turn it on with
   `[screen] enabled = true` and `backlight_gpio = 12` in `chatbox.local.toml`.

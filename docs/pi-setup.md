@@ -1,23 +1,30 @@
-# Running Chatbox on a Raspberry Pi
+# Setting up Chatbox on a Raspberry Pi
 
-Everything here is for a **Raspberry Pi 3 Model B v1.2** with **no audio hardware**: the
-text pipeline (`chatbox chat`) and the parent settings page. The microphone, speaker,
-amplifier, button and LEDs come later; `chatbox talk` is expected to refuse to start
-until they're plugged in.
+This takes you from a blank SD card to Chatbox answering questions on a Raspberry Pi,
+with its settings page open on your phone. It was written for, and tested on, a
+**Raspberry Pi 3 Model B v1.2**.
 
-Its own doc rather than a README section: the README describes Chatbox itself, and none
-of this applies when you run on the laptop. Skip to [Measuring the Pi](#8-measuring-the-pi)
-once it's running.
+Every step says how to check it worked and what the usual failure looks like. Steps 1–2
+happen on your computer; everything after that happens on the Pi, over SSH.
 
-Each step says how to check it worked and what the failure looks like. Steps 1–3 are on
-the Mac; 4 onward are on the Pi over SSH.
+## What you need
+
+- A Raspberry Pi 3 Model B, a 5 V 2.5 A micro-USB power supply, and a microSD card of
+  8 GB or more
+- A computer with an SD card reader, on the same Wi-Fi network the Pi will join
+- An [Anthropic API key](https://console.anthropic.com/)
+- For voice (`chatbox talk`): a Google Cloud service-account key, set up as described in
+  the README's [Voice setup](../README.md#voice-setup-for-chatbox-talk)
+- For voice: the button, light, amplifier, speaker and microphone from
+  [hardware.md](hardware.md). You can do steps 1–7 without them, since text chat needs
+  none of it.
 
 ---
 
-## 1. Write the SD card (on the Mac)
+## 1. Write the SD card (on your computer)
 
-Install [Raspberry Pi Imager](https://www.raspberrypi.com/software/). Use a card of 8 GB
-or more; writing it erases everything on it.
+Install [Raspberry Pi Imager](https://www.raspberrypi.com/software/). Writing the card
+erases everything on it.
 
 - **Raspberry Pi Device:** Raspberry Pi 3
 - **Operating System:** *Raspberry Pi OS (other)* → **Raspberry Pi OS Lite (64-bit)**
@@ -32,27 +39,28 @@ only costs memory, and the Pi 3B has 1 GB.
 `grpcio`, which is a large C++ extension. On 64-bit (`aarch64`) pip downloads a prebuilt
 wheel and it's done in a minute; on 32-bit (`armv7l`) there is no wheel, so pip compiles
 gRPC from source, which on a Pi 3B takes hours and often dies when it runs out of memory.
-The same is true of `pydantic-core`. A Pi 3B is 64-bit capable, so take the wheels.
+The same is true of `pydantic-core`.
 
 Before writing, open **⚙ / Edit Settings** and fill in:
 
 | Setting | Value |
 |---|---|
 | Hostname | `chatbox` (this doc assumes it; the Pi is then `chatbox.local`) |
-| Username and password | pick your own; this doc writes it as `<user>` |
-| Wi-Fi SSID / password | your home network — the Pi 3B is **2.4 GHz only**, so use your 2.4 GHz network name if your router splits the bands |
+| Username and password | pick your own; this doc writes the username as `<user>` |
+| Wi-Fi SSID / password | your home network. The Pi 3B is **2.4 GHz only**, so use your 2.4 GHz network name if your router splits the bands |
 | Wireless LAN country | your country, or Wi-Fi stays off |
-| Locale / time zone | your time zone. It matters: the policy's schedule and the daily question cap are evaluated in the policy's own time zone, but logs and `date` follow the Pi's |
+| Locale / time zone | your time zone. It matters: the policy's schedule and daily question limit use the policy's own time zone, but logs and `date` follow the Pi's |
 | **Services → Enable SSH** | **on**, "Use password authentication" (or paste a public key if you have one) |
 
 Write the card, wait for the verify pass, eject it, put it in the Pi, and power it on.
 
 **Verify:** the green activity LED flickers for a minute or two on first boot. Solid green
-with no flicker after a few minutes usually means the card didn't write properly — rewrite it.
+with no flicker after a few minutes usually means the card didn't write properly, so
+rewrite it.
 
 ---
 
-## 2. Connect from the Mac
+## 2. Connect to the Pi (from your computer)
 
 ```sh
 ssh <user>@chatbox.local
@@ -63,23 +71,23 @@ Accept the host key fingerprint the first time.
 **Verify:** you get a `<user>@chatbox:~ $` prompt.
 
 **When `chatbox.local` doesn't resolve** (`ssh: Could not resolve hostname chatbox.local`),
-mDNS isn't reaching it. In order:
+your computer can't find the Pi by name. In order:
 
-1. Give it another minute; first boot expands the filesystem and reboots once.
-2. Find it by address instead. Either check your router's list of attached devices, or
-   from the Mac:
+1. Give it another minute. First boot expands the filesystem and reboots once.
+2. Find it by address instead. Check your router's list of attached devices, or from
+   your computer:
    ```sh
-   dns-sd -B _ssh._tcp            # Ctrl-C to stop; look for "chatbox"
-   arp -a | grep -i -e b8:27:eb -e dc:a6:32 -e e4:5f:01   # Raspberry Pi MAC prefixes
+   arp -a | grep -i -e b8:27:eb -e dc:a6:32 -e e4:5f:01   # Raspberry Pi hardware prefixes
+   dns-sd -B _ssh._tcp                                     # Mac only; Ctrl-C to stop
    ```
    Then `ssh <user>@192.168.x.y`.
-3. If nothing appears at all, the Pi isn't on the network: the most common causes are a
-   5 GHz-only SSID, a typo'd Wi-Fi password, or a missing "Wireless LAN country". All
-   three mean rewriting the card, since the Pi never got far enough to log anything you
-   can read. A wired Ethernet cable is the quickest way to rule Wi-Fi out.
+3. If nothing appears at all, the Pi isn't on the network. The most common causes are a
+   5 GHz-only network, a mistyped Wi-Fi password, or a missing "Wireless LAN country".
+   All three mean rewriting the card. A wired Ethernet cable is the quickest way to rule
+   Wi-Fi out.
 
-**If the host key changed** (after reflashing the same hostname), the Mac refuses to
-connect with a large warning. Clear the old key:
+**If the host key changed** (after rewriting the card with the same hostname), SSH
+refuses to connect with a large warning. Clear the old key:
 ```sh
 ssh-keygen -R chatbox.local
 ```
@@ -92,20 +100,17 @@ On the Pi:
 ```sh
 hostname -I | awk '{print $1}'
 ```
-Write it down; you'll need it for the settings page on a phone, and to get back in if
-mDNS is flaky.
+Write it down. You'll need it for the settings page on a phone, and to get back in if
+`chatbox.local` stops resolving.
 
-Home routers hand out addresses on a lease, so this can change after a reboot. Two ways
-to make it dependable, either is fine:
-
-- **Preferred:** reserve it in the router. Find "DHCP reservation" / "static lease" and
-  pin the Pi's MAC address (`ip link show wlan0`, the `link/ether` value) to one address.
-  The Pi needs no changes.
-- Or just re-run `hostname -I` over `ssh <user>@chatbox.local` each time.
+Home routers hand out addresses on a lease, so this can change after a reboot. To keep
+it fixed, reserve it in your router: find "DHCP reservation" or "static lease" and pin
+the Pi's hardware address (`ip link show wlan0`, the `link/ether` value) to one address.
+The Pi itself needs no changes.
 
 ---
 
-## 4. First-boot housekeeping
+## 4. Update the system and install what Chatbox needs
 
 ```sh
 sudo apt update && sudo apt full-upgrade -y
@@ -114,70 +119,56 @@ sudo reboot
 
 Expect this to take 10–20 minutes on a Pi 3B the first time. Reconnect after the reboot.
 
-Check what Python the image ships:
+Check the Python version:
 ```sh
 python3 --version
 ```
 
-Chatbox needs **3.11 or newer** (`requires-python = ">=3.11"` in `pyproject.toml`).
-Raspberry Pi OS Lite based on Debian 12 (Bookworm) ships 3.11; the Debian 13 (Trixie)
-image ships 3.13. Both are fine — **don't install a newer Python yourself**, and don't
-use `pyenv` here. Building Python from source on a Pi 3B is slow, and the system one is
-what the prebuilt wheels are published for.
+Chatbox needs **3.11 or newer**. Raspberry Pi OS based on Debian 12 (Bookworm) ships
+3.11, and Debian 13 (Trixie) ships 3.13. Both are fine. **Don't install a newer Python
+yourself**: building Python on a Pi 3B is slow, and the system one is what the prebuilt
+packages are published for. If it reports 3.9 or older, you're on an old image; rewrite
+the card from step 1.
 
-If `python3 --version` reports 3.9 or older, you're on an old image. Reflash from step 1
-rather than fighting it.
-
-Install the two system packages the image doesn't have:
+Install the system packages Chatbox uses:
 ```sh
-sudo apt install -y git python3-venv
+sudo apt install -y git python3-venv libportaudio2
 ```
+
+`libportaudio2` is the sound library `chatbox talk` records and plays through. Text chat
+doesn't need it, but installing it now saves a step later.
 
 **Verify:** `git --version` and `python3 -m venv --help` both print something.
 
 ---
 
-## 5. Get Chatbox onto the Pi
-
-First, **commit anything you want on the Pi**, on the Mac. A clone copies committed
-history only, so uncommitted work stays behind.
-
-Chatbox has no GitHub remote, and doesn't need one: clone straight from the Mac. Turn on
-System Settings → General → Sharing → **Remote Login** there, then on the Pi:
+## 5. Download and install Chatbox
 
 ```sh
 cd ~
-git clone <mac-user>@<mac-hostname>.local:/path/to/chatbox chatbox
+git clone https://github.com/adamhajari/chatbox.git
 cd chatbox
 python3 -m venv .venv
 .venv/bin/pip install --upgrade pip
 .venv/bin/pip install -e .
 ```
 
-That leaves a normal git remote pointing at the Mac, so later updates are `git pull`
-with the Mac awake and on the same Wi-Fi. If the Mac's `.local` name doesn't resolve from
-the Pi, use its address (`ipconfig getifaddr en0` on the Mac). `.env`, `.venv/` and
-`data/` are gitignored, so none of them come across — step 6 sets them up on the Pi.
-
-If you'd rather not leave Remote Login on, a private GitHub repo works the same way and
-survives the Mac being asleep. Keep it **private**: the policy file and `PLAN.md` describe
-your household.
-
-The venv isn't optional. Raspberry Pi OS marks its system Python as externally managed,
-so `pip install` outside a venv fails with `error: externally-managed-environment`. That
-message is the system protecting itself — make the venv, don't pass `--break-system-packages`.
+The `.venv` (virtual environment) isn't optional. Raspberry Pi OS protects its own
+Python, so `pip install` outside a venv fails with
+`error: externally-managed-environment`. Make the venv; don't pass
+`--break-system-packages`.
 
 **What to expect from the install.** On a Pi 3B over Wi-Fi this takes roughly 5–10
 minutes, nearly all of it downloading. Watch the lines as they scroll:
 
-- `Downloading grpcio-…-manylinux_2_17_aarch64.whl (6.0 MB)` — good, that's the prebuilt
-  wheel, and the same for `pydantic_core-…aarch64.whl`.
-- `Building wheel for grpcio (setup.py)` — **stop it with Ctrl-C.** That means pip found
-  no wheel for this machine and is about to compile gRPC, which on a Pi 3B takes hours and
-  usually ends in `g++: fatal error: Killed signal terminated program cc1plus`, the
-  out-of-memory killer. The cause is almost always a 32-bit image. Check with
-  `uname -m`: it must print `aarch64`. If it prints `armv7l`, reflash with the 64-bit
-  image (step 1); that is faster than compiling.
+- `Downloading grpcio-…-manylinux_2_17_aarch64.whl (6.0 MB)`: good, that's the prebuilt
+  package. The same goes for `pydantic_core-…aarch64.whl`.
+- `Building wheel for grpcio (setup.py)`: **stop it with Ctrl-C.** pip found no prebuilt
+  package and is about to compile gRPC, which on a Pi 3B takes hours and usually ends in
+  `g++: fatal error: Killed signal terminated program cc1plus` when memory runs out. The
+  cause is almost always a 32-bit image. Check with `uname -m`: it must print `aarch64`.
+  If it prints `armv7l`, rewrite the card with the 64-bit image (step 1). That is faster
+  than compiling.
 
 **Verify:**
 ```sh
@@ -186,10 +177,10 @@ minutes, nearly all of it downloading. Watch the lines as they scroll:
 
 ---
 
-## 6. Secrets
+## 6. Add your keys
 
-Same rules as the laptop: **nothing secret is ever committed**, and the Google key file
-lives outside the repo with tight permissions. `.env` is already in `.gitignore`.
+**Nothing secret is ever committed.** `.env` is already in `.gitignore`, and the Google
+key file lives outside the repo.
 
 ```sh
 cd ~/chatbox
@@ -198,29 +189,29 @@ nano .env          # Ctrl-O to save, Ctrl-X to quit
 chmod 600 .env
 ```
 
-Set `ANTHROPIC_API_KEY` to your key. That's all `chatbox chat` needs.
+Set `ANTHROPIC_API_KEY` to your key. That's all text chat needs.
 
-The Google credentials are only used by `chatbox talk`, so you can skip them until the
-microphone arrives. When you do want them, copy the service-account key from the Mac —
-over `scp`, never through the repo:
+For voice, you also need the Google service-account key. Create it on your computer by
+following the README's [Voice setup](../README.md#voice-setup-for-chatbox-talk), then copy
+it to the Pi:
 
 ```sh
 # on the Pi
 mkdir -p ~/.config/chatbox && chmod 700 ~/.config/chatbox
 
-# on the Mac
+# on your computer
 scp ~/.config/chatbox/gcp-speech.json <user>@chatbox.local:~/.config/chatbox/
 
 # back on the Pi
 chmod 600 ~/.config/chatbox/gcp-speech.json
 ```
 
-and point `.env` at it:
+and add these two lines to `.env`:
 ```
 GOOGLE_APPLICATION_CREDENTIALS=/home/<user>/.config/chatbox/gcp-speech.json
 GOOGLE_CLOUD_PROJECT=your-project-id
 ```
-Use the full path, not `~` — it's read as a literal path, and `~` silently fails to resolve.
+Use the full path, not `~`. It's read as a literal path, and `~` silently fails.
 
 **Verify:**
 ```sh
@@ -230,17 +221,27 @@ git status --short                     # must NOT list .env or any key file
 
 ---
 
-## 7. Run it
+## 7. Try text chat
 
 All commands run from `~/chatbox` with the venv's Python. `.venv/bin/chatbox` is the
-installed command; `source .venv/bin/activate` first if you'd rather type `chatbox`.
+installed command; run `source .venv/bin/activate` first if you'd rather type `chatbox`.
 
 ```sh
 cd ~/chatbox
 .venv/bin/chatbox check-policy      # OK: …/policies/default.yaml (version …)
-.venv/bin/chatbox show-prompt       # prints the compiled system prompt
-.venv/bin/chatbox chat -v           # ask a question; -v prints the pipeline steps
+.venv/bin/chatbox chat -v           # ask a question; -v prints each step
 ```
+
+Next, give the Pi more time for the safety check. Its default 4 s deadline is too tight
+for a Pi 3B: questions time out and get the "something went wrong" reply. Create
+`chatbox.local.toml`, which holds this Pi's own settings:
+
+```sh
+cp chatbox.local.toml.example chatbox.local.toml
+nano chatbox.local.toml
+```
+
+and uncomment `timeout_seconds = 9` under `[guardrails.classifier]`.
 
 **Common failures**
 
@@ -249,30 +250,51 @@ cd ~/chatbox
 | `Config file not found: chatbox.toml` | you're not in `~/chatbox`; `cd` there first |
 | `Policy file not found: …` | same |
 | `Could not resolve authentication method` / 401 from the API | `ANTHROPIC_API_KEY` is missing or wrong in `.env` |
-| answers are all the "something went wrong" reply | the Pi can't reach the API. Check `ping -c3 api.anthropic.com`, and that the clock is right (`date`) — a wrong clock breaks TLS |
-
-**`chatbox talk` without a microphone** is expected to refuse, and it should say so in a
-sentence:
-
-```
-$ .venv/bin/chatbox talk
-chatbox talk needs a microphone and a speaker, but the PortAudio sound library isn't
-installed (…). On Raspberry Pi OS / Debian: sudo apt install -y libportaudio2
-`chatbox chat` works without them.
-```
-
-Installing `libportaudio2` on a Pi with still no devices attached changes the message to
-"no microphone or speaker was found", which is also correct. Either way it's one line,
-not a stack trace. If you ever get a stack trace out of `chatbox talk`, that's a bug —
-the check lives in `audio_device_problem()` in `src/chatbox/audio/__init__.py`.
+| every answer is the "something went wrong" reply | the Pi can't reach the API, or the deadline above is still 4 s. Check `ping -c3 api.anthropic.com`, and that the clock is right (`date`), since a wrong clock breaks secure connections |
 
 ---
 
-## 8. The parent settings page from a phone
+## 8. Add the hardware and talk to it
+
+Wire and set up each part by following [hardware.md](hardware.md): the button and light,
+then the amplifier and speaker (including its **Enabling it** and **Volume** steps), then
+the microphone. Each part there has its own check to run before moving on.
+
+Then tell Chatbox about them in `chatbox.local.toml`. Uncomment the `[voice]` lines for
+the button and light, and add the audio devices:
+
+```toml
+[voice]
+button_gpio = 17
+led_gpio = [22, 23, 24]
+led_common_anode = true
+input_device = "default"
+output_device = "default"
+```
+
+Now start it:
+
+```sh
+.venv/bin/chatbox talk -v
+```
+
+Hold the button, ask a question, let go. The light goes green while listening, amber
+while thinking, and blue while speaking.
+
+| What you see | What it means |
+|---|---|
+| "no microphone or speaker was found", or "no sound devices are available" | the amplifier or mic isn't set up yet; go back to hardware.md |
+| `Invalid sample rate` | `input_device` / `output_device` aren't set to `"default"` |
+| it always says it didn't catch that | the mic is too quiet; see the microphone's **Level** steps in hardware.md |
+| an error mentioning Google credentials or the project | the key path or project ID in `.env` is wrong (step 6) |
+
+---
+
+## 9. Open the settings page on your phone
 
 ```sh
 cd ~/chatbox
-.venv/bin/chatbox chat --web
+.venv/bin/chatbox talk --web        # or: chat --web
 ```
 
 It prints the address to open:
@@ -280,21 +302,15 @@ It prints the address to open:
 Parent settings: open http://192.168.x.y:8321/ on a phone or computer on this network.
 ```
 
-Open that on a phone on the same Wi-Fi. Change a topic, save, then ask the next question
-in the same terminal — it follows the new policy without a restart (PLAN.md D20).
-
-**What the Pi needs that the Mac didn't:** nothing in the code, and no firewall change
-(Raspberry Pi OS ships with no firewall enabled). The `[web] host = "auto"` setting finds
-the address the Pi's default route uses, which is the Wi-Fi address — it does **not** rely
-on the hostname, so Debian's `127.0.1.1` hostname entry can't trap it.
+Open that on a phone on the same Wi-Fi. Change a topic and save; the next question
+follows the new rules without a restart.
 
 Two things to know:
 
-- **The page has no password** (PLAN.md D7a). Anyone on the home network can change the
-  policy. Requests from outside private address ranges are refused, but that's all.
-- **Nothing starts at boot.** Running Chatbox as a service is deliberately out of scope
-  for now: you SSH in and start it by hand. Closing the SSH session kills it. If you want
-  it to survive the session, start it under `tmux`:
+- **The page has no password.** Anyone on your home network can change what Chatbox will
+  talk about. Requests from outside your local network are refused, but that's all.
+- **Nothing starts at boot.** You SSH in and start Chatbox by hand, and closing the SSH
+  session stops it. To keep it running after you disconnect, start it inside `tmux`:
   ```sh
   sudo apt install -y tmux
   tmux new -s chatbox           # run chatbox in here; Ctrl-B then D to detach
@@ -302,117 +318,19 @@ Two things to know:
   ```
 
 **If the phone can't reach it:** check the phone is on the same Wi-Fi (not cellular, and
-not a guest network — guest networks block device-to-device traffic, which is the usual
-cause). `curl -sI http://127.0.0.1:8321/` on the Pi itself tells you whether the server
+not a guest network: guest networks block devices from reaching each other, which is the
+usual cause). `curl -sI http://127.0.0.1:8321/` on the Pi tells you whether the server
 is up or the network is in the way.
 
 ---
 
-## 9. Measuring the Pi
-
-This is what decides whether a Pi 5 is worth buying. `scripts/measure.py` runs the real
-CLI and reports the same per-step timings `chatbox chat -v` prints:
+## Updating
 
 ```sh
 cd ~/chatbox
-.venv/bin/python scripts/measure.py -n 3
+git pull
+.venv/bin/pip install -e .
 ```
 
-It asks four fixed questions three times, then prints medians for start-up, each pipeline
-step, end-to-end time, and the peak memory one Chatbox process used. Run the same command
-on the Mac for the comparison. Costs a few cents of API usage per run.
-
-Check memory while it's running, from a second SSH session:
-```sh
-free -m           # "available" is the number that matters, against ~1 GB total
-```
-
-### Mac baseline (2026-09-22, MacBook, Python 3.13.9, Haiku 4.5, output check off)
-
-| | median | range |
-|---|---|---|
-| start → first `kid>` prompt | 0.42 s | 0.41–0.42 |
-| question, end to end | 1.42 s | 1.09–5.18 |
-| · `classify` | 1.22 s | 1.04–2.84 |
-| · `generate` | 1.34 s | 0.95–5.18 |
-| peak memory, one process | 76 MB | |
-
-`classify` and `generate` run concurrently, so the end-to-end time is roughly the slower
-of the two, not their sum. `output_check` reads 0 ms because it's off (D21); turning it
-on adds about a second. The wide upper range is API tail latency, not the machine.
-
-### Pi 3B (measured 2026-09-22, Python 3.13.5, same model and settings)
-
-| | median | range |
-|---|---|---|
-| start → first `kid>` prompt | 7.59 s | 7.58–7.70 |
-| question, end to end | 1.40 s | 1.12–4.12 |
-| · `classify` | 1.34 s | 1.05–4.11 |
-| · `generate` | 1.33 s | 1.05–1.79 |
-| peak memory, one process | 70 MB | of 1 GB |
-
-Per question the Pi 3B is **level with the Mac** (1.40 s against 1.42 s). Start-up is 18×
-slower — imports read off an SD card — and is paid once per run, not per question.
-
-An earlier run of the same command on the same board gave a median of 2.77 s with an
-11.6 s worst case. Nothing was changed between the two. `scripts/probe_net.py` explains
-why that run was not the board's fault:
-
-| | Mac | Pi 3B |
-|---|---|---|
-| tcp connect | 9 ms | 8 ms |
-| tls handshake | 17 ms | 41 ms |
-| warm API call | 506 ms | 547 ms |
-| two concurrent calls | 528 / 609 ms | 537 / 764 ms |
-
-The link, the TLS handshake and concurrent calls are all at parity, so the spikes were
-API-side or network-side variance. The Mac shows the same tail in miniature: a 5.5 s
-worst case on a full-length answer, on a fast machine and a 5 GHz link.
-
-### Verdict: stay on the Pi 3B
-
-**Don't buy a Pi 5.** Per-question time matches the laptop, memory sits at 70 MB of 1 GB,
-and nothing measured here is bounded by the board. Revisit only if the voice path (phase
-6b) pushes memory near the limit once gRPC and audio buffers are loaded, or if a local
-wake word is ever added (PLAN.md D5) — that is real local compute, and the only workload
-in this project that would be.
-
-The one thing a Pi 5 would buy today is a 5 GHz radio; the Pi 3B is 2.4 GHz only. That
-did not show up as a problem in these measurements, but it is the thing to suspect if
-latency gets worse once the box lives in a kid's room, further from the router.
-
-### Open: the classifier deadline is too tight
-
-`[guardrails.classifier] timeout_seconds = 4` is a hard deadline. Past it the pipeline
-fails closed: the answer that was generated concurrently is discarded and the child hears
-the "something went wrong" reply.
-
-At 4 s this failed **7 of 12 questions** on the Pi. Even in the good run above, with the
-deadline raised for measurement, one classify took 4.11 s — it would have failed closed.
-The Mac is not safe either: its worst classify was 2.84 s against the same 4 s ceiling.
-
-Raising it is not free: D4 budgets 5 s from the end of a question to the start of speech,
-and a long deadline means a child stands there waiting. This needs a decision, not a
-tuning tweak. The measured numbers to decide from: classify is ~1.2–1.3 s typically, and
-its tail reached 4.1 s in a good run and 11.5 s in a bad one.
-
-### How to read it
-
-Chatbox does almost no local work: classification, the answer and (later) speech are all
-network calls. The Pi's CPU only has to start Python, parse the policy and do TLS. So
-expect:
-
-- **Start-up** to be several times slower than the Mac — importing `anthropic`, `pydantic`
-  and `grpc` off an SD card is disk-bound and single-thread-bound. It happens once per run.
-- **Per question** to be close to the Mac, because it's dominated by the same API round
-  trips. A Pi 3B that lands within a few hundred milliseconds of the Mac per question is
-  doing its job.
-- **Memory** to be the real risk, not speed: 1 GB total, with `grpc` loaded once the
-  voice path is added.
-
-**The decision rule:** the budget is 5 s from the end of a question to the start of speech
-(PLAN.md D4), and voice adds speech-to-text and text-to-speech on top of what's measured
-here. Buy a Pi 5 if, on the Pi 3B, **per-question time is more than about a second worse
-than the Mac**, or **memory available under load drops below ~150 MB**. Slow start-up on
-its own is not a reason — it's paid once, and once Chatbox runs as a service it's paid at
-boot.
+Your `.env`, `chatbox.local.toml` and conversation data aren't part of the repo, so
+updating never touches them.

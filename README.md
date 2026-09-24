@@ -59,8 +59,9 @@ chatbox log -n 10            # show the last 10 logged exchanges (when logging i
 
 Global options (`--config`, `--policy`, `--db`) go before the subcommand.
 
-To run Chatbox on a Raspberry Pi instead of the laptop, see
-[docs/pi-setup.md](docs/pi-setup.md) — flashing the card through to measuring the board.
+To run Chatbox on a Raspberry Pi, see [docs/pi-setup.md](docs/pi-setup.md), from a
+blank SD card to talking to it. To work on Chatbox, developing on a Mac and running it
+on a Pi, see [docs/development.md](docs/development.md).
 
 ## Files
 
@@ -249,7 +250,7 @@ hold SPACE ─▶ mic streams to speech-to-text ─▶ release ─▶ transcript
 - **Streaming both ways.** Audio goes to speech-to-text while the kid is still talking, so
   the transcript is ready moments after release. Playback starts on the first chunk of
   synthesized audio.
-- **Always audio feedback** (neither kid reads yet): a rising beep when listening starts, a
+- **Always audio feedback** (young children may not read yet): a rising beep when listening starts, a
   falling beep on release, a soft blip for a tap that was too short (nothing is sent), the
   policy's `didnt_catch_that` reply for silence or no recognized words, the policy's
   `something_went_wrong` reply when speech-to-text fails, and a low two-note error sound if
@@ -288,7 +289,7 @@ question to first audio, the D4 number: at most 5,000 ms).
 ## The screen (Pi only)
 
 A 2.2" SPI display showing a picture of what was asked about while Chatbox answers
-(PLAN.md D28/D29). **Pictures only, never text** — neither kid reads fluently, so the
+(PLAN.md D28/D29). **Pictures only, never text** — young children may not read yet, so the
 screen supplements the spoken answer and is never needed to understand it.
 
 ```
