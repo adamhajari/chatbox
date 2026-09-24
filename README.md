@@ -54,6 +54,7 @@ talkbox talk --web           # also serve the parent settings page (works with c
 talkbox --policy other.yaml chat   # use a different policy file
 talkbox check-policy         # validate the policy file
 talkbox show-prompt          # print the system prompt compiled from the policy
+                             # (includes the screen section if this machine has one)
 talkbox log -n 10            # show the last 10 logged exchanges (when logging is on)
 ```
 
@@ -301,6 +302,12 @@ classifier (already running) ─▶ subject ─▶ Wikipedia article's lead imag
   question, so there is no extra model call and no extra latency. `Classification.subject`
   is the concrete thing the question is about (`"octopus"`, `"the Moon"`), or `None`
   where there isn't one ("why do we have to sleep?"). It never affects a decision.
+- **Pip knows the screen exists.** With it enabled, the system prompt gains a section
+  telling it not to deny that it can show things — without it, "can you show me a
+  picture of an octopus?" got "I can't show you pictures, but I can tell you about
+  them". It still never says what the picture is or promises one, and every answer has
+  to make complete sense with the screen off. `talkbox show-prompt` shows the section
+  when this machine has a screen; the honesty rules are untouched either way.
 - **Landscape, 320x240.** The panel is 240x320 glass turned 90 degrees (`[screen]
   rotation`), because a photograph of a thing is usually wider than it is tall.
   Pictures are letterboxed to that shape on black, never stretched.
