@@ -3,8 +3,8 @@
 - `DailyCounter`: questions per day, for the daily cap. Stores counts only, no text.
 - `Controls`: switches a parent flips from the settings page (pause). Kept in the database
   so a restart doesn't quietly undo them.
-- `ExchangeLog`: guardrail layer 7 (storage half), full exchange records. Off by
-  default for now (chatbox.toml `[logging] enabled`), see PLAN.md D8.
+- `ExchangeLog`: guardrail layer 7 (storage half), full exchange records. On by
+  default (chatbox.toml `[logging] enabled`).
 """
 
 from __future__ import annotations

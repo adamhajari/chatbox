@@ -674,13 +674,13 @@ def test_local_config_overrides_only_the_keys_it_names(tmp_path):
 
     (tmp_path / "chatbox.toml").write_text((ROOT / "chatbox.toml").read_text())
     (tmp_path / "chatbox.local.toml").write_text(
-        "[voice]\nbutton_gpio = 17\n\n[guardrails.classifier]\ntimeout_seconds = 9\n")
+        "[voice]\nbutton_gpio = 17\n\n[guardrails.classifier]\ntimeout_seconds = 12\n")
 
     settings = load_settings(tmp_path / "chatbox.toml")
     assert settings.speech.voice["button_gpio"] == 17
     # Sibling keys in the same sections survive.
     assert settings.speech.voice["sample_rate"] == 16000
-    assert settings.guardrails.classifier.timeout_seconds == 9
+    assert settings.guardrails.classifier.timeout_seconds == 12
     assert settings.guardrails.classifier.provider_settings["model"] == "claude-haiku-4-5"
     assert settings.local_config == tmp_path / "chatbox.local.toml"
 

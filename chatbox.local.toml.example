@@ -33,7 +33,3 @@
 # --- a machine that needs a fixed web address ---
 [web]
 # host = "192.168.1.20"
-
-# --- a slower machine that needs a longer deadline for the classifier ---
-[guardrails.classifier]
-# timeout_seconds = 9

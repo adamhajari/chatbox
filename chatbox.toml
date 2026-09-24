@@ -18,8 +18,9 @@ port = 8321
 max_history_exchanges = 20
 
 [logging]
-# Off for now (PLAN.md D8). When off, only a per-day question count is stored
-# (for the daily cap); no question or answer text is saved.
+# On: every question and answer is saved in data/chatbox.db, for the settings page's
+# "Today's questions and answers" and `chatbox log`. Off: only a per-day question count
+# is stored (for the daily limit); no question or answer text is saved.
 enabled = true
 
 [provider]
@@ -48,8 +49,10 @@ length_tolerance = 0.25
 [guardrails.classifier]
 model = "claude-haiku-4-5"
 max_tokens = 300
-# Hard deadline for the check, including retries.
-timeout_seconds = 4
+# Hard deadline for the check, including retries. Typically ~1.2 s, but its tail reaches
+# 4 s even on a good network, and on a Pi 3B a 4 s deadline failed most questions
+# (docs/development.md). Past it the child hears the "something went wrong" reply.
+timeout_seconds = 9
 max_retries = 1
 
 [guardrails.output_check]

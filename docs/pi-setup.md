@@ -2,17 +2,23 @@
 
 This takes you from a blank SD card to Chatbox answering questions on a Raspberry Pi,
 with its settings page open on your phone. It was written for, and tested on, a
-**Raspberry Pi 3 Model B v1.2**.
+**Raspberry Pi 3 Model B v1.2**. Newer models with the same 40-pin header (the 3B+, 4
+and 5) should work too, but haven't been tested. If you try one, the timings in this doc
+are for a Pi 3B, so yours should be faster.
 
 Every step says how to check it worked and what the usual failure looks like. Steps 1–2
 happen on your computer; everything after that happens on the Pi, over SSH.
 
 ## What you need
 
-- A Raspberry Pi 3 Model B, a 5 V 2.5 A micro-USB power supply, and a microSD card of
-  8 GB or more
+- A Raspberry Pi: a 3 Model B is the tested board; a 3B+, 4 or 5 should also work
+- The official power supply for your model: 5 V 2.5 A micro-USB for a Pi 3B or 3B+,
+  5 V 3 A USB-C for a Pi 4, 5 V 5 A USB-C for a Pi 5. An underpowered supply shows up
+  as the Pi rebooting when the speaker gets loud
+- A microSD card of 8 GB or more
 - A computer with an SD card reader, on the same Wi-Fi network the Pi will join
-- An [Anthropic API key](https://console.anthropic.com/)
+- An Anthropic API key: see the README's
+  [Anthropic API key](../README.md#anthropic-api-key) steps
 - For voice (`chatbox talk`): a Google Cloud service-account key, set up as described in
   the README's [Voice setup](../README.md#voice-setup-for-chatbox-talk)
 - For voice: the button, light, amplifier, speaker and microphone from
@@ -26,7 +32,7 @@ happen on your computer; everything after that happens on the Pi, over SSH.
 Install [Raspberry Pi Imager](https://www.raspberrypi.com/software/). Writing the card
 erases everything on it.
 
-- **Raspberry Pi Device:** Raspberry Pi 3
+- **Raspberry Pi Device:** your model (Raspberry Pi 3 for a 3B)
 - **Operating System:** *Raspberry Pi OS (other)* → **Raspberry Pi OS Lite (64-bit)**
 - **Storage:** your SD card
 
@@ -189,7 +195,9 @@ nano .env          # Ctrl-O to save, Ctrl-X to quit
 chmod 600 .env
 ```
 
-Set `ANTHROPIC_API_KEY` to your key. That's all text chat needs.
+Set `ANTHROPIC_API_KEY` to your key (the README's
+[Anthropic API key](../README.md#anthropic-api-key) steps show how to get one). That's
+all text chat needs.
 
 For voice, you also need the Google service-account key. Create it on your computer by
 following the README's [Voice setup](../README.md#voice-setup-for-chatbox-talk), then copy
@@ -232,17 +240,6 @@ cd ~/chatbox
 .venv/bin/chatbox chat -v           # ask a question; -v prints each step
 ```
 
-Next, give the Pi more time for the safety check. Its default 4 s deadline is too tight
-for a Pi 3B: questions time out and get the "something went wrong" reply. Create
-`chatbox.local.toml`, which holds this Pi's own settings:
-
-```sh
-cp chatbox.local.toml.example chatbox.local.toml
-nano chatbox.local.toml
-```
-
-and uncomment `timeout_seconds = 9` under `[guardrails.classifier]`.
-
 **Common failures**
 
 | What you see | What it means |
@@ -250,7 +247,7 @@ and uncomment `timeout_seconds = 9` under `[guardrails.classifier]`.
 | `Config file not found: chatbox.toml` | you're not in `~/chatbox`; `cd` there first |
 | `Policy file not found: …` | same |
 | `Could not resolve authentication method` / 401 from the API | `ANTHROPIC_API_KEY` is missing or wrong in `.env` |
-| every answer is the "something went wrong" reply | the Pi can't reach the API, or the deadline above is still 4 s. Check `ping -c3 api.anthropic.com`, and that the clock is right (`date`), since a wrong clock breaks secure connections |
+| every answer is the "something went wrong" reply | the Pi can't reach the API. Check `ping -c3 api.anthropic.com`, and that the clock is right (`date`), since a wrong clock breaks secure connections |
 
 ---
 
@@ -260,8 +257,14 @@ Wire and set up each part by following [hardware.md](hardware.md): the button an
 then the amplifier and speaker (including its **Enabling it** and **Volume** steps), then
 the microphone. Each part there has its own check to run before moving on.
 
-Then tell Chatbox about them in `chatbox.local.toml`. Uncomment the `[voice]` lines for
-the button and light, and add the audio devices:
+Then tell Chatbox about them in `chatbox.local.toml`, which holds this Pi's own settings:
+
+```sh
+cp chatbox.local.toml.example chatbox.local.toml
+nano chatbox.local.toml
+```
+
+Uncomment the `[voice]` lines for the button and light, and add the audio devices:
 
 ```toml
 [voice]

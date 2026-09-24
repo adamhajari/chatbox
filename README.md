@@ -1,9 +1,15 @@
 # Chatbox
 
-A kid-friendly assistant that answers questions within rules the parents set.
-This is **Phase 4: parent controls**. Hold the spacebar, ask a question out loud, and
-Chatbox speaks the checked answer. A parent can change the rules from a phone while it runs.
-The typed chat from Phases 1–2 still works. See `PLAN.md` for the full plan.
+A voice assistant for young children that answers questions within rules their parents
+set. A child holds a button, asks a question out loud, and Chatbox speaks an answer
+written for their age, after checking both the question and the answer against the
+parents' rules. Parents change those rules (topics, hours, a daily limit) from a phone or laptop
+while it runs.
+
+It runs on a Raspberry Pi with a button, a status light, a speaker, a microphone and an
+optional picture screen ([docs/hardware.md](docs/hardware.md)). It also runs on a laptop,
+where the spacebar is the button, and as a typed chat. Answers come from Claude; speech
+goes through Google Cloud.
 
 ## Setup
 
@@ -17,9 +23,31 @@ cp .env.example .env        # then put your ANTHROPIC_API_KEY in .env
 
 `.env` is git-ignored. Never commit it.
 
+### Anthropic API key
+
+Chatbox's answers and its safety checks come from Claude, through the Anthropic API.
+Every question costs a fraction of a cent: a run of twelve test questions costs a few
+cents in total.
+
+1. Go to [platform.claude.com](https://platform.claude.com/) and sign in, or create an
+   account.
+2. Add credits under **Settings → Billing**. API calls fail until the account has a
+   balance. While you're in settings, set a monthly spend limit so a runaway loop can't
+   run up a bill.
+3. Go to **Settings → API keys** and click **Create key**. Name it (e.g. `chatbox`), set
+   **Linked account** to yourself, and choose an expiration. A key that expires stops
+   Chatbox on that date, so pick one you'll remember to renew, or no expiration.
+4. **Copy the key now.** It starts with `sk-ant-` and the Console shows it only once. If
+   you lose it, create a new one.
+5. Put it in `.env`: `ANTHROPIC_API_KEY=sk-ant-...`
+
+Check it works with `chatbox chat`: ask a question and you should get an answer. A
+`401` or `Could not resolve authentication method` error means the key in `.env` is
+missing or mistyped.
+
 ### Voice setup (for `chatbox talk`)
 
-Speech goes through Google Cloud Speech-to-Text v2 and Text-to-Speech (PLAN.md D19).
+Speech goes through Google Cloud Speech-to-Text v2 and Text-to-Speech.
 Google doesn't log the audio unless you opt in, so leave its "data logging" off. Chatbox
 never writes audio to disk.
 
@@ -81,9 +109,12 @@ on a Pi, see [docs/development.md](docs/development.md).
 
 - **Sessions:** within one `chatbox chat` run, follow-up questions ("why?") see the earlier
   exchanges, up to `[chat] max_history_exchanges`. Nothing is remembered between runs.
-- **Logging** is off by default (`[logging] enabled = false`). With it off, only a count of
-  questions per day is stored (for the daily cap); no question or answer text is saved.
-  Set it to `true` to record every exchange with its pipeline decisions.
+- **Logging** is on by default (`[logging] enabled = true`). Every exchange is saved in
+  `data/chatbox.db` on the machine running Chatbox: the time, the question (as typed, or as
+  transcribed from speech), the answer, and each pipeline step's decision. That's what the settings
+  page's "Today's questions and answers" and `chatbox log` show. Nothing is deleted
+  automatically, and no audio is ever saved. Set it to `false` to keep only a count of
+  questions per day (for the daily limit), with no question or answer text.
 - **Model:** set `model` under `[provider.anthropic]`. For `claude-haiku-4-5`, delete the
   `effort` line; Haiku doesn't accept it.
 
@@ -119,8 +150,8 @@ computer is shown but can't be switched off.
   unsaved edits are never lost to a reload.
 - **Today's questions and answers** (collapsed, at the bottom) lists today's exchanges,
   newest first, with the time and whether it was a model answer or a fixed reply. It only
-  has something to show when `[logging] enabled = true` in `chatbox.toml` (off by default,
-  PLAN.md D8); otherwise it says logging is off. Reload the page to see new ones.
+  has something to show when `[logging] enabled = true` in `chatbox.toml` (the default);
+  otherwise it says logging is off. Reload the page to see new ones.
 - **Save** checks the whole policy first. If anything is wrong (an empty reply, a window
   that ends before it starts, two topics with the same id), nothing is saved and each
   problem is shown in red next to its field. `policy_version` goes up by one on every save.
@@ -144,10 +175,10 @@ home-network address, not on every network interface; `port` defaults to 8321. S
 to a specific address, or `"127.0.0.1"` for this computer only. Requests from outside
 private network ranges, and forms posted from other websites, are refused.
 
-> **No password yet (PLAN.md D7a).** Anyone on the home network can open the page and
-> change what Chatbox will talk about, including kids and guests. That's acceptable while
-> only adults are testing. **Add a password before the kid pilot (Phase 5)**: kids share
-> the Wi-Fi and could unblock topics or lift the daily limit.
+> **The page has no password.** Anyone on the home network can open it and change what
+> Chatbox will talk about, including children and guests. A child on the same Wi-Fi could
+> unblock topics or lift the daily limit. Only run it with `--web` while you're using it,
+> and not on a network you share with people you don't trust.
 
 **What happens to the file's comments.** A save rewrites `policies/default.yaml` from the
 saved policy. The comment block at the top of the file is kept; any other comments, blank
@@ -189,7 +220,9 @@ question → limits → ┬ classify ──┐→ canned reply (redirect/refuse)
                                                           → fail: blocked-topic reply
 ```
 
-The guardrail layers (numbers from PLAN.md section 4):
+The guardrail layers. The numbers are the design's
+layer numbers, which the code comments use too; layer 2 (a provider's own content
+filters) isn't used.
 
 | Layer | What it does | Where |
 |---|---|---|
@@ -207,8 +240,8 @@ through the provider interface.
 redirect or refuse, the answer is thrown away unused and the canned reply comes back
 right away. On `allow`, the output check runs after the answer is complete.
 Typical measured times with `claude-haiku-4-5` for all three: classify ~1.2 s, answer
-~1.3 s (in parallel), output check ~1.2 s, so ~2.8 s for an answered question and ~1.1 s
-for a redirect or refusal.
+~1.3 s (in parallel), so ~1.4 s for an answered question and ~1.1 s for a redirect or
+refusal. Turning the output check on adds ~1.2 s to an answered question.
 
 **Fail closed.** If the classifier or the output check errors, times out, or returns
 something unusable (wrong format, a redirect naming a blocked topic, and so on), the
@@ -231,12 +264,12 @@ milliseconds. `chatbox chat -v` prints them; with logging on they're stored in
 | `[provider.anthropic] timeout_seconds` | Deadline for the answering model. |
 | `[guardrails] history_exchanges` | Recent question/answer pairs the checks see. |
 | `[guardrails] length_tolerance` | Fraction over the policy's length limits still accepted (0.25 = 25%). |
-| `[guardrails.output_check] enabled` | `false` turns layer 4 off entirely, length check included. Saves about 1 s per answered question, but answers are no longer checked before the kid hears them. `chatbox chat` shows "output check OFF" and each answer's steps show `output_check: skipped`. |
+| `[guardrails.output_check] enabled` | Off (`false`) by default: in testing it sometimes rejected harmless answers, such as how chefs chop vegetables. `false` turns layer 4 off entirely, length check included. Saves about 1 s per answered question, but answers are no longer checked before the kid hears them. `chatbox chat` shows "output check OFF" and each answer's steps show `output_check: skipped`. |
 | `[guardrails.classifier]` / `[guardrails.output_check]` | Each has `model`, `max_tokens`, `timeout_seconds` (hard deadline; past it the pipeline fails closed) and `max_retries`. They use the same provider as the answering model. |
 
 ## Voice
 
-`chatbox talk` runs pipeline B (PLAN.md D3):
+`chatbox talk` turns speech into text, runs the same text pipeline, and speaks the result:
 
 ```
 hold SPACE ─▶ mic streams to speech-to-text ─▶ release ─▶ transcript
@@ -273,7 +306,7 @@ hold SPACE ─▶ mic streams to speech-to-text ─▶ release ─▶ transcript
 |---|---|
 | `[speech] language` | Language for both services (`en-US`). |
 | `[speech.stt] name`, `[speech.tts] name` | Which vendor (`google`). |
-| `[speech.stt.google] model`, `location` | Recognition model and its region. Measured time from release to transcript: `long` / `global` ≈ 0.13 s; `chirp_3` / `us` ≈ 0.75 s; `chirp_2` / `us-central1` ≈ 0.8 s. The Chirp models are newer and may cope better with young kids' speech; compare them on the kids' voices during the pilot. |
+| `[speech.stt.google] model`, `location` | Recognition model and its region. Measured time from release to transcript: `long` / `global` ≈ 0.13 s; `chirp_3` / `us` ≈ 0.75 s; `chirp_2` / `us-central1` ≈ 0.8 s. The Chirp models are newer and may cope better with young children's speech; worth comparing on your own children's voices. |
 | `[speech.tts.google] voice` | Any Chirp 3 HD voice name, e.g. `en-US-Chirp3-HD-Leda`. |
 | `[voice] min_press_seconds` | Shorter presses count as accidental taps. |
 | `[voice] silence_rms` | Recordings quieter than this get "didn't catch that" without calling speech-to-text. |
@@ -284,12 +317,12 @@ hold SPACE ─▶ mic streams to speech-to-text ─▶ release ─▶ transcript
 
 `chatbox talk -v` shows the steps: `stt` (time from release to transcript), each text
 pipeline step, `pipeline` (total), `tts` (time to first audio), and `speech_start` (end of
-question to first audio, the D4 number: at most 5,000 ms).
+question to first audio, which should stay under 5,000 ms).
 
 ## The screen (Pi only)
 
-A 2.2" SPI display showing a picture of what was asked about while Chatbox answers
-(PLAN.md D28/D29). **Pictures only, never text** — young children may not read yet, so the
+A 2.2" SPI display showing a picture of what was asked about while Chatbox answers.
+**Pictures only, never text** — young children may not read yet, so the
 screen supplements the spoken answer and is never needed to understand it.
 
 ```
@@ -311,8 +344,8 @@ classifier (already running) ─▶ subject ─▶ Wikipedia article's lead imag
   negative entry so a subject with no picture is looked up once.
 - **Speech never waits for a picture.** The lookup runs on its own thread with a hard
   timeout (`[screen] timeout_seconds`). Whatever is ready when the answer starts is
-  shown; anything still in flight appears late, or not at all. D4's 5 s budget is
-  untouched.
+  shown; anything still in flight appears late, or not at all. The 5 s target from question
+  to speech is untouched.
 - **Nothing can break a turn.** No article, no network, a dead panel, a missing library:
   every one of them means no picture and an identical spoken answer.
 - **Blocked and redirected questions show nothing.** Only an "allow" starts a lookup.
@@ -320,7 +353,7 @@ classifier (already running) ─▶ subject ─▶ Wikipedia article's lead imag
   goes out with it, so it's genuinely dark rather than a lit grey rectangle.
 - **`chatbox chat` uses it too**, not just `chatbox talk`: the picture goes up with the
   printed answer and comes down when the next question is typed. That is the only way
-  to see a whole turn on a Pi whose microphone and speaker aren't wired yet. It appears
+  to see a whole turn on a Pi without a microphone and speaker. It appears
   a moment *after* the text, because the lookup only starts when the classifier returns
   and there is no speech to cover it.
 - **Adapters, not plumbing.** `chatbox/voice.py` and the pipeline know nothing about the
@@ -328,12 +361,11 @@ classifier (already running) ─▶ subject ─▶ Wikipedia article's lead imag
   classifier (to catch the subject) and the speaker (to show and clear); the panel itself
   is `Screen` in `chatbox/audio/pi.py`, lazily imported.
 
-> **The picture is not checked by any guardrail before a child sees it** (PLAN.md D29).
-> The classifier checks the *question*; nothing checks the image that comes back. This
-> is a real gap in the promise that nothing reaches a child unchecked, accepted for v1
-> only because Chatbox is family-only and supervised (D17). It must be revisited before
-> unsupervised use, and certainly before any other family's children — most likely as a
-> parent-approved subject list edited from the settings page.
+> **The picture is not checked by any guardrail before a child sees it.** The classifier
+> checks the *question*; nothing checks the image that comes back. This is a real gap in
+> the promise that nothing reaches a child unchecked. Only turn the screen on if an adult
+> is nearby while Chatbox is used. The likely fix is a parent-approved list of subjects,
+> edited from the settings page.
 
 ### Screen settings (`chatbox.toml`)
 

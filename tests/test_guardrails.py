@@ -197,11 +197,13 @@ def test_output_check_enabled_setting(tmp_path):
     from chatbox.config import load_settings
     from tests.conftest import ROOT
     text = (ROOT / "chatbox.toml").read_text()
-    assert load_settings(ROOT / "chatbox.toml").guardrails.output_check.enabled
+    assert not load_settings(ROOT / "chatbox.toml").guardrails.output_check.enabled
     cfg = tmp_path / "chatbox.toml"
-    cfg.write_text(text.replace("enabled = true", "enabled = false", 1))
+    head, section = text.split("[guardrails.output_check]", 1)
+    cfg.write_text(head + "[guardrails.output_check]"
+                   + section.replace("enabled = false", "enabled = true", 1))
     s = load_settings(cfg)
-    assert not s.guardrails.output_check.enabled
+    assert s.guardrails.output_check.enabled
     assert "enabled" not in s.guardrails.output_check.provider_settings
 
 

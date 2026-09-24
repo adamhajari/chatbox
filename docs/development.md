@@ -181,17 +181,19 @@ here. A faster board is worth it if, on the Pi 3B, **per-question time is more t
 a second worse than the Mac**, or **memory available under load drops below ~150 MB**.
 Slow start-up on its own is not a reason: it's paid once per run.
 
-### Open: the classifier deadline is too tight
+### The classifier deadline: 9 s
 
-`[guardrails.classifier] timeout_seconds = 4` is a hard deadline. Past it the pipeline
-fails closed: the answer that was generated concurrently is discarded and the child hears
-the "something went wrong" reply.
+`[guardrails.classifier] timeout_seconds` is a hard deadline. Past it the pipeline fails
+closed: the answer that was generated concurrently is discarded and the child hears the
+"something went wrong" reply.
 
-At 4 s this failed **7 of 12 questions** on the Pi. Even in the good run above, with the
-deadline raised for measurement, one classify took 4.11 s and would have failed closed.
-The Mac isn't safe either: its worst classify was 2.84 s against the same 4 s ceiling.
+It was 4 s, and at 4 s it failed **7 of 12 questions** on the Pi. Even in the good run
+above, with the deadline raised for measurement, one classify took 4.11 s and would have
+failed closed. The Mac wasn't safe either: its worst classify was 2.84 s. So the default
+is now 9 s, on every machine.
 
-Raising it isn't free: the 5 s budget means a long deadline leaves a child standing there
-waiting. This needs a decision, not a tuning tweak. The numbers to decide from: classify
-is ~1.2–1.3 s typically, and its tail reached 4.1 s in a good run and 11.5 s in a bad
-one. Until then, pi-setup.md tells Pi users to raise it in `chatbox.local.toml`.
+The cost: the 5 s budget means a slow classify leaves a child waiting, and 9 s allows a
+wait well past it. That only happens in the tail. Classify is ~1.2–1.3 s typically, so a
+typical question is unaffected, and a slow answer beats a "something went wrong" for a
+question that would have passed. Its tail reached 4.1 s in a good run and 11.5 s in a bad
+one, so even 9 s fails closed in a bad run.
