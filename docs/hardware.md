@@ -367,16 +367,22 @@ because it creates a real `Master` that `alsamixer`, `amixer` and Talkbox all sh
 
 ```
 pcm.!default {
+    type         asym
+    playback.pcm "softvol"
+    capture.pcm  "capture_plug"
+}
+
+pcm.capture_plug {
     type      plug
-    slave.pcm "softvol"
+    slave.pcm "hw:CARD=Device"
 }
 
 pcm.softvol {
     type      softvol
-    slave.pcm "plughw:1,0"
+    slave.pcm "plughw:CARD=sndrpihifiberry"
     control {
         name  "Master"
-        card  1
+        card  "sndrpihifiberry"
     }
     min_dB -51.0
     max_dB   0.0
@@ -384,15 +390,32 @@ pcm.softvol {
 
 ctl.!default {
     type hw
-    card 1
+    card "sndrpihifiberry"
 }
 ```
 
-This also pins the default device. It has to: turning the onboard audio off removes card
-0, so anything asking for "the default" would otherwise land on HDMI or fail. That covers
-`aplay`, `speaker-test` and PortAudio in one place, which is better than naming the
-device in `talkbox.local.toml` — the card numbering is a property of the machine, not of
-Talkbox.
+This pins the default device, which it has to: turning the onboard audio off removes the
+card everything used to default to, so anything asking for "the default" would otherwise
+land on HDMI or fail. It covers `aplay`, `speaker-test` and PortAudio in one place.
+
+**Address cards by ID, never by number.** Card numbers are assigned in probe order and
+swap between boots — `sndrpihifiberry` and the USB mic traded places on a reboot here,
+which pointed capture at the amplifier and playback at the microphone. `hw:CARD=Device`
+and `plughw:CARD=sndrpihifiberry` are stable; `cat /proc/asound/cards` lists the IDs.
+Same for the tools: `alsamixer -c Device`, `amixer -c sndrpihifiberry`.
+
+Talkbox itself should name `default` for both directions, in `talkbox.local.toml`:
+
+```toml
+[voice]
+input_device = "default"
+output_device = "default"
+```
+
+Without that it asks PortAudio for *its* default, which is a raw `hw:` device that does
+no resampling — the mic can't do the pipeline's 16 kHz and the DAC can't do the 24 kHz
+text-to-speech produces, so both directions fail with `Invalid sample rate`. Going
+through `default` puts the `asym` device and its `plug` conversion in the path.
 
 The `Master` control doesn't exist until the device is first opened, so play something
 before looking for it. Then `sudo alsactl store` to survive a reboot.
@@ -406,9 +429,8 @@ child holds near their face.
 
 ## The microphone
 
-A plug-and-play USB mic, no driver needed. It appears as its own card (card 0 here;
-`arecord -l` confirms it, and USB card numbers can shift if devices are plugged in a
-different order).
+A plug-and-play USB mic, no driver needed. It appears as its own card, ID `Device`
+(`cat /proc/asound/cards`). Refer to it by that ID: its *number* changes between boots.
 
 **It does not do 16 kHz**, which is the rate the voice pipeline uses. Opening `hw:0,0`
 directly fails with `Invalid sample rate [PaErrorCode -9997]`. It has to go through
@@ -433,16 +455,16 @@ What to aim for, measured from where a child will stand, not from where you are:
 Verified 2026-09-23 at capture 13/16 (81%, 19.34 dB): RMS 1510, peak 10981.
 
 ```sh
-amixer -c 0 scontrols          # what this mic actually has
-alsamixer -c 0                 # F4 for capture, arrow to set, Esc
+amixer -c Device scontrols     # what this mic actually has
+alsamixer -c Device            # F4 for capture, arrow to set, Esc
 sudo alsactl store             # levels are a snapshot; unstored changes revert at boot
 ```
 
 **The trap:** in `alsamixer`'s capture view, **Space** toggles whether an item is a
 capture source and **M** mutes, and both are easy to hit while arrowing the level. The
 symptom is RMS and peak of exactly **0** — digital silence rather than a quiet signal,
-since even a badly placed mic produces some noise. Check with `amixer -c 0 sget Mic` and
-look for `[off]`; `amixer -c 0 sset Mic cap` turns it back on. Store again afterwards, or
+since even a badly placed mic produces some noise. Check with `amixer -c Device sget Mic`
+and look for `[off]`; `amixer -c Device sset Mic cap` turns it back on. Store again afterwards, or
 the muted state is what comes back at the next boot.
 
 ## Still to do
