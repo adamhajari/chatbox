@@ -2,8 +2,8 @@
 
 The button, status light and picture screen for the Raspberry Pi build. The button and
 LED were wired and verified on 2026-09-22; the screen's pinout was chosen on 2026-09-23
-and is **not yet verified on the bench** (see "Verifying it"). The microphone, speaker
-and MAX98357A amplifier aren't wired yet; the pin choices below leave room for them.
+and is **not yet verified on the bench** (see "Verifying it"). The amplifier's wiring is
+recorded below but likewise unverified; the microphone and speaker aren't wired yet.
 
 For getting the software onto the Pi in the first place, see
 [pi-setup.md](pi-setup.md).
@@ -107,13 +107,12 @@ controller (an ILI9325 or an ST7789 want a different driver).
 No touch panel on this one, and the SD card socket on the back is unused — neither is
 wired and neither is wanted.
 
-**It is a 3.3 V part.** VCC and LED both go to 3V3; 5 V will damage it. The Pi's 3V3 rail
-is shared with the LED's common leg, which is fine — the backlight draws about 20 mA.
+**It is a 3.3 V part.** VCC goes to 3V3 (pin 17); 5 V will damage it.
 
-**LED (backlight) tied to VCC** means the backlight is on whenever the Pi is. Moving it to a
-spare GPIO would allow blanking it between questions; that's worth doing only if a lit
-screen turns out to bother anyone at bedtime, and it needs a transistor rather than a
-direct pin (the backlight draws more than a GPIO should source).
+**The backlight is switched from GPIO12**, not tied to 3V3 — see the pinout above for
+why. Measure the backlight current before wiring it straight to the pin: a GPIO should
+source no more than about 16 mA, and if the panel wants more than that it needs a
+transistor between the pin and the backlight rather than a direct connection.
 
 **MISO stays unconnected.** The driver only writes, and leaving it off keeps one more
 pin free.
