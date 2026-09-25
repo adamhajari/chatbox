@@ -16,11 +16,11 @@ from __future__ import annotations
 
 import math
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Literal, Protocol
 
 from chatbox.policy import Policy, Topic
-from chatbox.providers.base import ChatMessage, ModelProvider
+from chatbox.providers.base import ChatMessage, ModelProvider, Usage
 
 
 class GuardrailError(Exception):
@@ -44,6 +44,7 @@ class Classification:
     # The second animal in an animal battle ("who would win, a shark or a crocodile?"),
     # with the first as the subject; None otherwise. The screen shows the two in turn.
     opponent: str | None = None
+    usage: Usage | None = None  # the check's own model call, for the cost log
 
 
 class InputClassifier(Protocol):
@@ -54,6 +55,7 @@ class InputClassifier(Protocol):
 class OutputVerdict:
     passed: bool
     detail: str = ""
+    usage: Usage | None = None  # None when no model was called (the length check failed)
 
 
 class OutputChecker(Protocol):
@@ -169,10 +171,10 @@ class ModelClassifier:
             f"<conversation_so_far>\n{_transcript(history, self.history_exchanges)}\n</conversation_so_far>\n\n"
             f"<latest_question>\n{question}\n</latest_question>"
         )
-        data = self.provider.generate_structured(
+        reply = self.provider.generate_structured(
             classifier_system_prompt(policy), [ChatMessage("user", user)], classifier_schema(policy)
         )
-        return parse_classification(data, policy)
+        return replace(parse_classification(reply.data, policy), usage=reply.usage)
 
 
 def parse_classification(data: dict, policy: Policy) -> Classification:
@@ -311,10 +313,10 @@ class ModelOutputChecker:
             f"<child_question>\n{question}\n</child_question>\n\n"
             f"<answer_to_check>\n{answer}\n</answer_to_check>"
         )
-        data = self.provider.generate_structured(
+        reply = self.provider.generate_structured(
             output_check_system_prompt(policy), [ChatMessage("user", user)], output_check_schema()
         )
-        return parse_verdict(data)
+        return replace(parse_verdict(reply.data), usage=reply.usage)
 
 
 def parse_verdict(data: dict) -> OutputVerdict:

@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import threading
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
@@ -28,12 +28,17 @@ CREATE TABLE IF NOT EXISTS exchanges (
     provider         TEXT,
     model            TEXT,
     latency_ms       INTEGER NOT NULL,
-    input_tokens     INTEGER,
+    input_tokens     INTEGER,           -- totals over every model call (see usage_json)
     output_tokens    INTEGER,
-    steps_json       TEXT    NOT NULL   -- [{"step": ..., "decision": ..., "detail": ...}, ...]
+    steps_json       TEXT    NOT NULL,  -- [{"step": ..., "decision": ..., "detail": ...}, ...]
+    cost_usd         REAL,              -- estimate from chatbox.toml [pricing]; NULL = unknown
+    usage_json       TEXT               -- [{"call": ..., "model": ..., "input_tokens": ..., ...}]
 );
 CREATE INDEX IF NOT EXISTS idx_exchanges_local_date ON exchanges(local_date);
 """
+
+# Columns added after the first release, for databases created before them.
+_ADDED_COLUMNS = {"cost_usd": "REAL", "usage_json": "TEXT"}
 
 
 def _connect(path: str | Path) -> sqlite3.Connection:
@@ -143,6 +148,8 @@ class ExchangeRecord:
     input_tokens: int | None
     output_tokens: int | None
     steps: list[dict]
+    cost_usd: float | None = None
+    usage: list[dict] = field(default_factory=list)  # one entry per model call
 
 
 class ExchangeLog:
@@ -150,6 +157,11 @@ class ExchangeLog:
         self._conn = _connect(path)
         self._lock = threading.Lock()
         self._conn.executescript(SCHEMA)
+        have = {row["name"] for row in self._conn.execute("PRAGMA table_info(exchanges)")}
+        for column, kind in _ADDED_COLUMNS.items():
+            if column not in have:
+                self._conn.execute(f"ALTER TABLE exchanges ADD COLUMN {column} {kind}")
+        self._conn.commit()
 
     def record(self, r: ExchangeRecord) -> int:
         with self._lock:
@@ -159,12 +171,12 @@ class ExchangeLog:
         cur = self._conn.execute(
             """INSERT INTO exchanges (ts_utc, local_date, question, answer, answered_by,
                    policy_version, provider, model, latency_ms, input_tokens, output_tokens,
-                   steps_json)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   steps_json, cost_usd, usage_json)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 r.ts_utc.isoformat(), r.local_date, r.question, r.answer, r.answered_by,
                 r.policy_version, r.provider, r.model, r.latency_ms, r.input_tokens,
-                r.output_tokens, json.dumps(r.steps),
+                r.output_tokens, json.dumps(r.steps), r.cost_usd, json.dumps(r.usage),
             ),
         )
         self._conn.commit()

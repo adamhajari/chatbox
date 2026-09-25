@@ -9,7 +9,7 @@ import yaml
 from chatbox.guardrails import Classification, OutputVerdict
 from chatbox.log import DailyCounter, ExchangeLog
 from chatbox.policy import Policy
-from chatbox.providers.base import ModelReply, ProviderError
+from chatbox.providers.base import ModelReply, ProviderError, StructuredReply, Usage
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_POLICY = ROOT / "policies" / "default.yaml"
@@ -79,7 +79,7 @@ class FakeProvider:
             raise ProviderError(self.error)
         if isinstance(self.structured, Exception):
             raise self.structured
-        return self.structured
+        return StructuredReply(self.structured, Usage(self.model, 200, 20))
 
 
 class AllowAll:

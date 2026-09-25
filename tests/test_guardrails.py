@@ -324,9 +324,14 @@ class _Block:
         self.text = text
 
 
+class _Usage:
+    input_tokens, output_tokens = 90, 5
+
+
 class _Resp:
     def __init__(self, text, stop="end_turn"):
         self.content, self.stop_reason, self.model = [_Block(text)], stop, "m"
+        self.usage = _Usage()
 
 
 class _Client:
@@ -344,7 +349,7 @@ def test_anthropic_structured_output_request_and_parse():
     client = _Client(_Resp('{"a": 1}'))
     p = AnthropicProvider("claude-haiku-4-5", client=client)
     schema = {"type": "object"}
-    assert p.generate_structured("sys", [ChatMessage("user", "q")], schema) == {"a": 1}
+    assert p.generate_structured("sys", [ChatMessage("user", "q")], schema).data == {"a": 1}
     assert client.kwargs["output_config"] == {"format": {"type": "json_schema", "schema": schema}}
     assert "effort" not in client.kwargs["output_config"]
 
@@ -415,7 +420,7 @@ def test_openai_structured_output_request_and_parse():
     client = _OAIClient(_OAIResp('{"a": 1}'))
     p = OpenAIProvider("gpt-6-luna", client=client)
     schema = {"type": "object"}
-    assert p.generate_structured("sys", [ChatMessage("user", "q")], schema) == {"a": 1}
+    assert p.generate_structured("sys", [ChatMessage("user", "q")], schema).data == {"a": 1}
     fmt = client.kwargs["response_format"]
     assert fmt["type"] == "json_schema" and fmt["json_schema"]["strict"] is True
     assert fmt["json_schema"]["schema"] is schema

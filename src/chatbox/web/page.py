@@ -7,6 +7,7 @@ from html import escape
 from typing import Any
 
 from chatbox.policy import WEEKDAYS
+from chatbox.pricing import format_cost
 from chatbox.web.form import KINDS
 
 _CSS = """
@@ -249,6 +250,15 @@ setInterval(async () => {
 </script>"""
 
 
+def _usage_note(x: dict[str, Any]) -> str:
+    """" · 1,520 in / 34 out tokens · $0.000169", or "" for a question with no model call."""
+    tokens_in, tokens_out = x.get("input_tokens"), x.get("output_tokens")
+    if tokens_in is None and tokens_out is None:
+        return ""
+    return (f" · {tokens_in or 0:,} in / {tokens_out or 0:,} out tokens"
+            f" · {format_cost(x.get('cost_usd'))}")
+
+
 def exchanges_panel(exchanges: list[dict[str, Any]] | None, logging_hint: str) -> str:
     """Today's questions and answers, newest first, collapsed by default."""
     if exchanges is None:
@@ -256,7 +266,8 @@ def exchanges_panel(exchanges: list[dict[str, Any]] | None, logging_hint: str) -
                 f'answers</h2></summary><p class="help">{_e(logging_hint)}</p></details></section>')
     rows = "".join(
         f'<div class="row"><p class="help">{_e(x["time"])} · '
-        f'{"fixed reply" if x["answered_by"] == "canned" else "model answer"}</p>'
+        f'{"fixed reply" if x["answered_by"] == "canned" else "model answer"}'
+        f'{_e(_usage_note(x))}</p>'
         f'<p><strong>Q:</strong> {_e(x["question"])}</p>'
         f'<p><strong>A:</strong> {_e(x["answer"])}</p></div>'
         for x in exchanges

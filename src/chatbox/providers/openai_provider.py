@@ -5,7 +5,8 @@ from typing import Any
 
 import openai
 
-from chatbox.providers.base import ChatMessage, ModelReply, ProviderError, keepalive_limits
+from chatbox.providers.base import (ChatMessage, ModelReply, ProviderError, StructuredReply,
+                                   Usage, keepalive_limits)
 
 
 class OpenAIProvider:
@@ -70,11 +71,12 @@ class OpenAIProvider:
             stop_reason="refusal" if refused else choice.finish_reason,
             input_tokens=usage.prompt_tokens if usage else None,
             output_tokens=usage.completion_tokens if usage else None,
+            cached_input_tokens=_cached(usage),
         )
 
     def generate_structured(
         self, system: str, messages: list[ChatMessage], schema: dict[str, Any]
-    ) -> dict[str, Any]:
+    ) -> StructuredReply:
         # Strict mode guarantees the output matches the schema; it needs every property
         # required and additionalProperties false, which the guardrail schemas already are.
         response = self._create(system, messages, {"response_format": {
@@ -92,4 +94,14 @@ class OpenAIProvider:
             raise ProviderError(f"unparseable structured output: {e}") from e
         if not isinstance(data, dict):
             raise ProviderError("structured output is not a JSON object")
-        return data
+        usage = response.usage
+        return StructuredReply(data, Usage(
+            response.model, usage.prompt_tokens if usage else None,
+            usage.completion_tokens if usage else None, _cached(usage)))
+
+
+def _cached(usage) -> int:
+    """Prompt tokens OpenAI served from its prompt cache. It caches long prompts on its
+    own (no request option), and bills those tokens at a lower rate."""
+    details = getattr(usage, "prompt_tokens_details", None)
+    return getattr(details, "cached_tokens", None) or 0

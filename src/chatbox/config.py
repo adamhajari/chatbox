@@ -12,6 +12,8 @@ import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from chatbox.pricing import Price, parse_prices
+
 
 @dataclass(frozen=True)
 class Settings:
@@ -27,6 +29,8 @@ class Settings:
     local_config: Path | None = None  # the chatbox.local.toml that was merged in, if any
     # The tracked starting policy, copied to `policy_path` when that doesn't exist yet.
     policy_default_path: Path | None = None
+    # [pricing]: model name -> price per million tokens, for each question's cost estimate.
+    prices: dict[str, Price] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -145,7 +149,7 @@ def _merge(base: dict, override: dict) -> dict:
 # Every section chatbox.toml understands. A key outside one of these does nothing, and
 # the most likely reason is a [section] header left commented out.
 _SECTIONS = frozenset({"paths", "web", "chat", "logging", "provider", "guardrails",
-                       "speech", "voice", "screen"})
+                       "speech", "voice", "screen", "pricing"})
 
 
 class ConfigError(Exception):
@@ -213,4 +217,5 @@ def load_settings(path: str | Path = "chatbox.toml", provider: str | None = None
             port=int(data.get("web", {}).get("port", 8321)),
         ),
         local_config=local_used,
+        prices=parse_prices(data.get("pricing", {})),
     )

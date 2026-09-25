@@ -39,7 +39,8 @@ from chatbox.limits import check_limits, local_now
 from chatbox.log import Controls, DailyCounter, ExchangeLog, ExchangeRecord
 from chatbox.policy import MAX_REMEMBER_EXCHANGES, Policy
 from chatbox.policy_store import PolicySnapshot, PolicyStore
-from chatbox.providers.base import ChatMessage, ModelProvider, ModelReply
+from chatbox.pricing import Price, cost_usd
+from chatbox.providers.base import ChatMessage, ModelProvider, ModelReply, Usage
 
 _log = logging.getLogger(__name__)
 
@@ -103,6 +104,32 @@ class Answer:
     steps: list[dict] = field(default_factory=list)
     exchange_id: int | None = None
     latency_ms: int = 0
+    # One entry per model call: {"call", "model", "input_tokens", "output_tokens",
+    # "cached_input_tokens", "cost_usd"}.
+    usage: list[dict] = field(default_factory=list)
+    cost_usd: float | None = None  # all calls together; None if any call's is unknown
+
+    @property
+    def input_tokens(self) -> int | None:
+        return _total(self.usage, "input_tokens")
+
+    @property
+    def output_tokens(self) -> int | None:
+        return _total(self.usage, "output_tokens")
+
+
+def _total(usage: list[dict], key: str) -> int | None:
+    known = [u[key] for u in usage if u[key] is not None]
+    return sum(known) if known else None
+
+
+def _discarded_usage(future: Future) -> Usage | None:
+    """A discarded answer is still billed. Count it if it has already finished; one still
+    running is left out, since nothing waits for it."""
+    if not future.done():
+        return None
+    outcome: _Outcome = future.result()
+    return outcome.value.usage if isinstance(outcome.value, ModelReply) else None
 
 
 def warm_up(*things) -> None:
@@ -135,8 +162,10 @@ class Pipeline:
         generate_timeout_s: float | None = None,
         clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
         controls: Controls | None = None,  # None = no pause switch
+        prices: dict[str, Price] | None = None,  # chatbox.toml [pricing], for the cost log
     ) -> None:
         self.controls = controls
+        self.prices = prices or {}
         self.store = policy if isinstance(policy, PolicyStore) else PolicyStore(policy)
         self.provider = provider
         self.counter = counter
@@ -174,16 +203,29 @@ class Pipeline:
         def step(name: str, decision: str, detail: str = "", ms: int | None = None) -> None:
             steps.append({"step": name, "decision": decision, "detail": detail, "ms": ms})
 
-        answer_text, answered_by, model_reply = self._run(snap, question, now, local_date, step)
+        usage: list[dict] = []
+
+        def spent(call: str, u: Usage | None) -> None:
+            if u is not None:
+                usage.append({"call": call, "model": u.model, "input_tokens": u.input_tokens,
+                              "output_tokens": u.output_tokens,
+                              "cached_input_tokens": u.cached_input_tokens,
+                              "cost_usd": cost_usd(u, self.prices)})
+
+        answer_text, answered_by, model_reply = self._run(
+            snap, question, now, local_date, step, spent)
         latency_ms = round((time.monotonic() - started) * 1000)
+        costs = [u["cost_usd"] for u in usage]
+        total_cost = None if None in costs else sum(costs)
 
         # Questions turned away by the limits don't count and don't join the conversation.
         if steps[0]["decision"] == "allow":
             self.counter.increment(local_date)
             self._remember(question, answer_text)
 
+        answer = Answer(answer_text, answered_by, steps, None, latency_ms, usage, total_cost)
         if self.log is None:
-            return Answer(answer_text, answered_by, steps, None, latency_ms)
+            return answer
         record = ExchangeRecord(
             ts_utc=now.astimezone(timezone.utc),
             local_date=local_date,
@@ -194,12 +236,14 @@ class Pipeline:
             provider=self.provider.name if model_reply else None,
             model=model_reply.model if model_reply else None,
             latency_ms=latency_ms,
-            input_tokens=model_reply.input_tokens if model_reply else None,
-            output_tokens=model_reply.output_tokens if model_reply else None,
+            input_tokens=answer.input_tokens,
+            output_tokens=answer.output_tokens,
             steps=steps,
+            cost_usd=total_cost,
+            usage=usage,
         )
-        exchange_id = self.log.record(record)
-        return Answer(answer_text, answered_by, steps, exchange_id, latency_ms)
+        answer.exchange_id = self.log.record(record)
+        return answer
 
     def _remember(self, question: str, answer: str) -> None:
         # Canned replies are kept too, so a follow-up "why?" sees what was said.
@@ -209,7 +253,7 @@ class Pipeline:
 
     def _run(
         self, snap: PolicySnapshot, question: str, now: datetime, local_date: str,
-        step: Callable[..., None],
+        step: Callable[..., None], spent: Callable[[str, Usage | None], None],
     ) -> tuple[str, Literal["model", "canned"], ModelReply | None]:
         policy = snap.policy
         went_wrong = policy.canned_replies.something_went_wrong
@@ -241,8 +285,10 @@ class Pipeline:
         if c.error is not None:
             step("classify", "error", f"failed closed: {_err(c.error)}", c.ms)
             step("generate", "discarded", "classifier failed", None)
+            spent("answer (discarded)", _discarded_usage(generate_f))
             return went_wrong, "canned", None
         cls: Classification = c.value
+        spent("classify", cls.usage)
         detail = f"{cls.topic_id}: {cls.detail}" if cls.topic_id else cls.detail
         step("classify", cls.decision, detail + _picture_note(cls), c.ms)
 
@@ -251,6 +297,7 @@ class Pipeline:
         if canned is not None:
             step("canned", "use", cls.topic_id or cls.decision, 0)
             step("generate", "discarded", f"classifier said {cls.decision}", None)
+            spent("answer (discarded)", _discarded_usage(generate_f))
             return canned, "canned", None
         step("canned", "skip", "", 0)
 
@@ -259,6 +306,7 @@ class Pipeline:
             step("generate", "error", _err(g.error), g.ms)
             return went_wrong, "canned", None
         reply: ModelReply = g.value
+        spent("answer", reply.usage)
         if reply.refused or not reply.text:
             step("generate", "refused" if reply.refused else "empty", reply.stop_reason or "", g.ms)
             return policy.canned_replies.blocked_topic, "canned", reply
@@ -275,6 +323,7 @@ class Pipeline:
             step("output_check", "error", f"failed closed: {_err(v.error)}", v.ms)
             return went_wrong, "canned", reply
         verdict: OutputVerdict = v.value
+        spent("output_check", verdict.usage)
         if not verdict.passed:
             step("output_check", "fail", verdict.detail, v.ms)
             return policy.canned_replies.blocked_topic, "canned", reply
@@ -307,4 +356,5 @@ def build_pipeline(
         check_timeout_s=g.output_check.timeout_seconds,
         generate_timeout_s=settings.provider_settings.get("timeout_seconds"),
         controls=controls,
+        prices=settings.prices,
     )

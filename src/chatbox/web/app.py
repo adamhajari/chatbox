@@ -84,7 +84,9 @@ def create_app(
         tz = ZoneInfo(store.policy.schedule.timezone)
         return [{"time": datetime.fromisoformat(r["ts_utc"]).astimezone(tz).strftime("%H:%M"),
                  "question": r["question"], "answer": r["answer"],
-                 "answered_by": r["answered_by"]} for r in log.for_date(today())]
+                 "answered_by": r["answered_by"], "input_tokens": r["input_tokens"],
+                 "output_tokens": r["output_tokens"], "cost_usd": r["cost_usd"]}
+                for r in log.for_date(today())]
 
     def page(data: dict, *, errors=None, message="", message_ok=True, preview: str | None = None,
              base_version: int | None = None, status: int = 200) -> HTMLResponse:

@@ -34,6 +34,17 @@ class ChatMessage:
 
 
 @dataclass(frozen=True)
+class Usage:
+    """Tokens one model call was billed for, as the vendor reported them."""
+
+    model: str
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    # The part of input_tokens read from the vendor's prompt cache, which bills cheaper.
+    cached_input_tokens: int = 0
+
+
+@dataclass(frozen=True)
 class ModelReply:
     text: str
     model: str
@@ -42,6 +53,17 @@ class ModelReply:
     stop_reason: str | None = None
     input_tokens: int | None = None
     output_tokens: int | None = None
+    cached_input_tokens: int = 0
+
+    @property
+    def usage(self) -> Usage:
+        return Usage(self.model, self.input_tokens, self.output_tokens, self.cached_input_tokens)
+
+
+@dataclass(frozen=True)
+class StructuredReply:
+    data: dict[str, Any]
+    usage: Usage | None = None
 
 
 class ProviderError(Exception):
@@ -59,7 +81,8 @@ class ModelProvider(Protocol):
 
     def generate_structured(
         self, system: str, messages: list[ChatMessage], schema: dict[str, Any]
-    ) -> dict[str, Any]:
-        """Return a JSON object matching `schema` (a plain JSON Schema). Raises
-        ProviderError on refusal, truncation, or output that isn't valid JSON."""
+    ) -> StructuredReply:
+        """Return a JSON object matching `schema` (a plain JSON Schema), with the call's
+        token usage. Raises ProviderError on refusal, truncation, or output that isn't
+        valid JSON."""
         ...

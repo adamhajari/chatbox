@@ -10,6 +10,7 @@ from pydantic import ValidationError
 
 from chatbox.config import ConfigError, ensure_policy, load_settings
 from chatbox.log import Controls, DailyCounter, ExchangeLog
+from chatbox.pricing import format_cost
 from chatbox.policy import load_policy
 from chatbox.policy_store import PolicyStore
 from chatbox.prompt import compile_system_prompt
@@ -113,6 +114,7 @@ def cmd_chat(args, settings) -> None:
             print(f"{pipeline.policy.persona.name}> {answer.text}")
             if args.verbose:
                 _print_steps(answer.steps, answer.latency_ms)
+                _print_usage(answer.usage, answer.cost_usd)
                 _print_screen(show)
             print()
     except KeyboardInterrupt:
@@ -151,6 +153,22 @@ def _print_steps(steps: list[dict], total_ms: int | None = None) -> None:
         print(f"   · {s['step']}: {s['decision']}{ms} {s['detail']}".rstrip())
     if total_ms is not None:
         print(f"   · total: {total_ms} ms")
+
+
+def _tokens(input_tokens, output_tokens) -> str:
+    def n(x):
+        return "?" if x is None else f"{x:,}"
+    return f"{n(input_tokens)} in / {n(output_tokens)} out tokens"
+
+
+def _print_usage(usage: list[dict], cost: float | None) -> None:
+    for u in usage:
+        cached = f", {u['cached_input_tokens']:,} cached" if u.get("cached_input_tokens") else ""
+        print(f"   · {u['call']} ({u['model']}): "
+              f"{_tokens(u['input_tokens'], u['output_tokens'])}{cached}, "
+              f"{format_cost(u['cost_usd'])}")
+    if usage:
+        print(f"   · cost: {format_cost(cost)}")
 
 
 def cmd_talk(args, settings) -> None:
@@ -249,6 +267,8 @@ def cmd_talk(args, settings) -> None:
                     print(f"{pipeline.policy.persona.name}> {result.spoken}")
                 if args.verbose:
                     _print_steps(result.steps)
+                    if result.answer is not None:
+                        _print_usage(result.answer.usage, result.answer.cost_usd)
                     _print_screen(show)
                 print()
                 press.flush()
@@ -310,10 +330,25 @@ def cmd_log(args, settings) -> None:
         print("Logging is off (chatbox.toml [logging] enabled = false).")
         return
     log = ExchangeLog(args.db or settings.database_path)
+    total, unknown = 0.0, False
     for row in reversed(log.recent(args.n)):
         steps = " > ".join(f"{s['step']}:{s['decision']}" for s in json.loads(row["steps_json"]))
         print(f"[{row['ts_utc']}] {row['policy_version']} {row['model'] or '-'} {row['latency_ms']}ms")
-        print(f"  Q: {row['question']}\n  A: {row['answer']}\n  {steps}\n")
+        print(f"  Q: {row['question']}\n  A: {row['answer']}\n  {steps}")
+        usage = json.loads(row["usage_json"]) if row["usage_json"] else None
+        if usage == []:
+            print("  no model calls")
+        elif usage:
+            print(f"  {_tokens(row['input_tokens'], row['output_tokens'])}, "
+                  f"{format_cost(row['cost_usd'])} "
+                  f"({', '.join(u['call'] for u in usage)})")
+        # Rows from before cost logging have no usage_json and aren't priced.
+        if row["cost_usd"] is None and usage != []:
+            unknown = True
+        else:
+            total += row["cost_usd"] or 0.0
+        print()
+    print(f"Total: {format_cost(total)}" + (" (some questions have no cost)" if unknown else ""))
     log.close()
 
 

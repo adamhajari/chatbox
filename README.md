@@ -123,8 +123,12 @@ on a Pi, see [docs/development.md](docs/development.md).
   exchanges, up to the policy's `answers.remember_exchanges` ("Earlier questions it remembers" on the settings page). Nothing is remembered between runs.
 - **Logging** is on by default (`[logging] enabled = true`). Every exchange is saved in
   `data/chatbox.db` on the machine running Chatbox: the time, the question (as typed, or as
-  transcribed from speech), the answer, and each pipeline step's decision. That's what the settings
-  page's "Today's questions and answers" and `chatbox log` show. Nothing is deleted
+  transcribed from speech), the answer, each pipeline step's decision, and the input and output
+  tokens of every model call it made (classifier, answer, output check) with an estimated cost.
+  That's what the settings page's "Today's questions and answers" and `chatbox log` show.
+  The cost uses the per-model prices in `chatbox.toml` `[pricing]`; a model not listed there
+  is logged as "cost unknown". An answer thrown away because the classifier said no is still
+  billed, and counted if it had finished by then. Nothing is deleted
   automatically, and no audio is ever saved. Set it to `false` to keep only a count of
   questions per day (for the daily limit), with no question or answer text.
 - **Model:** `[provider] name` picks the vendor (`openai` or `anthropic`) for the answer

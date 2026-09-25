@@ -5,7 +5,8 @@ from typing import Any
 
 import anthropic
 
-from chatbox.providers.base import ChatMessage, ModelReply, ProviderError, keepalive_limits
+from chatbox.providers.base import (ChatMessage, ModelReply, ProviderError, StructuredReply,
+                                   Usage, keepalive_limits)
 
 
 class AnthropicProvider:
@@ -71,7 +72,7 @@ class AnthropicProvider:
 
     def generate_structured(
         self, system: str, messages: list[ChatMessage], schema: dict[str, Any]
-    ) -> dict[str, Any]:
+    ) -> StructuredReply:
         response = self._create(
             system, messages, {"format": {"type": "json_schema", "schema": schema}}
         )
@@ -84,4 +85,5 @@ class AnthropicProvider:
             raise ProviderError(f"unparseable structured output: {e}") from e
         if not isinstance(data, dict):
             raise ProviderError("structured output is not a JSON object")
-        return data
+        usage = response.usage
+        return StructuredReply(data, Usage(response.model, usage.input_tokens, usage.output_tokens))
