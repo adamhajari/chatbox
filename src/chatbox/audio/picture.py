@@ -171,6 +171,10 @@ class WatchingClassifier:
     def __init__(self, classifier, show: PictureShow) -> None:
         self.classifier, self.show = classifier, show
 
+    def warm(self) -> None:
+        if warm := getattr(self.classifier, "warm", None):
+            warm()
+
     def classify(self, question, history, policy):
         classification = self.classifier.classify(question, history, policy)
         try:

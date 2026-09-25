@@ -12,6 +12,7 @@ dependencies = [
     # Voice (Phase 3). Apache-2.0 / MIT.
     "google-cloud-speech>=2.33",
     "google-cloud-texttospeech>=2.29",
+    "openai>=1.68",  # the gpt-6-luna model option, and text-to-speech. Apache-2.0.
     "sounddevice>=0.5",
     # The picture screen (Phase 7). MIT-CMU. The display driver itself is Pi-only and
     # installed there by hand (docs/hardware.md), but decoding and scaling a picture

@@ -24,7 +24,9 @@ max_history_exchanges = 20
 enabled = true
 
 [provider]
-name = "anthropic"
+# "anthropic" or "openai". This one line switches the answering model and both
+# guardrail checks below; each vendor's settings stay filled in.
+name = "openai"
 
 [provider.anthropic]
 # model = "claude-opus-5"
@@ -36,8 +38,17 @@ max_tokens = 4000
 # Seconds before an answer request gives up (the kid then hears the error reply).
 timeout_seconds = 15
 
+[provider.openai]
+# Needs OPENAI_API_KEY in .env.
+model = "gpt-6-luna"
+# "none" turns reasoning off: faster and cheaper. Unset, the model reasons at "medium".
+reasoning_effort = "none"
+max_tokens = 4000
+timeout_seconds = 15
+
 # Guardrail layers 3 and 4 (see README). Each is a separate, fast model call with
-# structured output, on the same provider as the answering model. If a check errors,
+# structured output, on the same vendor as the answering model ([provider] name), with
+# that vendor's model settings in the .anthropic / .openai subsection. If a check errors,
 # times out, or returns something unusable, the kid gets a canned reply (fail closed).
 [guardrails]
 # How many recent question/answer pairs the checks see, so "why?" is judged in context.
@@ -47,22 +58,36 @@ history_exchanges = 6
 length_tolerance = 0.25
 
 [guardrails.classifier]
-model = "claude-haiku-4-5"
-max_tokens = 300
 # Hard deadline for the check, including retries. Typically ~1.2 s, but its tail reaches
 # 4 s even on a good network, and on a Pi 3B a 4 s deadline failed most questions
 # (docs/development.md). Past it the child hears the "something went wrong" reply.
 timeout_seconds = 9
 max_retries = 1
 
+[guardrails.classifier.anthropic]
+model = "claude-haiku-4-5"
+max_tokens = 300
+
+[guardrails.classifier.openai]
+model = "gpt-6-luna"
+reasoning_effort = "none"
+max_tokens = 300
+
 [guardrails.output_check]
 # false skips layer 4 entirely (including the length check): answers come back ~1 s
 # sooner but are no longer checked before the kid hears them.
 enabled = false
-model = "claude-haiku-4-5"
-max_tokens = 300
 timeout_seconds = 4
 max_retries = 1
+
+[guardrails.output_check.anthropic]
+model = "claude-haiku-4-5"
+max_tokens = 300
+
+[guardrails.output_check.openai]
+model = "gpt-6-luna"
+reasoning_effort = "none"
+max_tokens = 300
 
 # Voice (chatbox talk). Pipeline B: speech-to-text -> the text pipeline above ->
 # text-to-speech. Credentials come from .env (GOOGLE_APPLICATION_CREDENTIALS,
@@ -79,11 +104,23 @@ model = "long"
 location = "global"
 
 [speech.tts]
+# "openai" or "google". Both sections below stay filled in, so switching is this one line.
 name = "google"
 
+[speech.tts.openai]
+# gpt-4o-mini-tts voices: alloy, ash, ballad, coral, echo, fable, nova, onyx, sage,
+# shimmer, verse, marin, cedar. Needs OPENAI_API_KEY in .env.
+voice = "marin"
+model = "gpt-4o-mini-tts"
+# How to speak, in plain words (the model follows it loosely).
+instructions = "Speak warmly and gently at a relaxed pace, like a friendly helper talking to a curious young child. Sound interested, not sing-song."
+timeout_seconds = 10
+
 [speech.tts.google]
-# Any Chirp 3 HD voice: https://cloud.google.com/text-to-speech/docs/chirp3-hd
-voice = "en-US-Chirp3-HD-Leda"
+# Any Google voice. Chirp 3 HD voices stream (audio starts sooner); others, such as
+# Neural2, are made whole and then played. Swap the comment to switch:
+# voice = "en-US-Chirp3-HD-Leda"
+voice = "en-US-Neural2-J"
 sample_rate = 24000
 timeout_seconds = 10
 

@@ -5,7 +5,7 @@ from typing import Any
 
 import anthropic
 
-from chatbox.providers.base import ChatMessage, ModelReply, ProviderError
+from chatbox.providers.base import ChatMessage, ModelReply, ProviderError, keepalive_limits
 
 
 class AnthropicProvider:
@@ -27,7 +27,13 @@ class AnthropicProvider:
         opts: dict[str, Any] = {"max_retries": max_retries}
         if timeout_seconds is not None:
             opts["timeout"] = float(timeout_seconds)
+        if client is None:
+            opts["http_client"] = anthropic.DefaultHttpxClient(limits=keepalive_limits(anthropic))
         self._client = client or anthropic.Anthropic(**opts)
+
+    def warm(self) -> None:
+        """Open the connection now (a free request), so the next call skips the setup."""
+        self._client.models.retrieve(self.model)
 
     def _create(self, system: str, messages: list[ChatMessage], output_config: dict):
         # Haiku 4.5 rejects `effort`, so only send it when configured.

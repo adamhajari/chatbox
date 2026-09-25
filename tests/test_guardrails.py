@@ -15,6 +15,7 @@ from chatbox.guardrails import (
     classifier_schema,
     classifier_system_prompt,
     length_problem,
+    output_check_schema,
     output_check_system_prompt,
 )
 from chatbox.pipeline import Pipeline
@@ -355,3 +356,117 @@ def test_anthropic_structured_output_problems_raise(resp):
     p = AnthropicProvider("claude-haiku-4-5", client=_Client(resp))
     with pytest.raises(ProviderError):
         p.generate_structured("sys", [ChatMessage("user", "q")], {"type": "object"})
+
+
+# ---- Structured provider (OpenAI adapter) ---------------------------------------
+
+class _OAIMessage:
+    def __init__(self, content, refusal=None):
+        self.content, self.refusal = content, refusal
+
+
+class _OAIChoice:
+    def __init__(self, content, finish="stop", refusal=None):
+        self.message, self.finish_reason = _OAIMessage(content, refusal), finish
+
+
+class _OAIUsage:
+    prompt_tokens, completion_tokens = 120, 7
+
+
+class _OAIResp:
+    def __init__(self, content, finish="stop", refusal=None):
+        self.choices = [_OAIChoice(content, finish, refusal)]
+        self.model, self.usage = "gpt-6-luna", _OAIUsage()
+
+
+class _OAIClient:
+    def __init__(self, resp):
+        self.resp, self.kwargs = resp, None
+        self.chat = self.completions = self
+
+    def create(self, **kwargs):
+        self.kwargs = kwargs
+        return self.resp
+
+
+def test_openai_generate_sends_system_first_and_reports_usage():
+    from chatbox.providers.openai_provider import OpenAIProvider
+    client = _OAIClient(_OAIResp(" Hello there. "))
+    p = OpenAIProvider("gpt-6-luna", reasoning_effort="none", client=client)
+    reply = p.generate("sys", [ChatMessage("user", "q"), ChatMessage("assistant", "a"),
+                               ChatMessage("user", "q2")])
+    assert reply.text == "Hello there." and not reply.refused
+    assert (reply.input_tokens, reply.output_tokens) == (120, 7)
+    assert [m["role"] for m in client.kwargs["messages"]] == ["system", "user", "assistant", "user"]
+    assert client.kwargs["reasoning_effort"] == "none"
+    assert "response_format" not in client.kwargs
+
+
+def test_openai_generate_refusal_is_flagged():
+    from chatbox.providers.openai_provider import OpenAIProvider
+    reply = OpenAIProvider("m", client=_OAIClient(_OAIResp(None, refusal="I can't help"))
+                           ).generate("sys", [ChatMessage("user", "q")])
+    assert reply.refused and reply.stop_reason == "refusal"
+
+
+def test_openai_structured_output_request_and_parse():
+    from chatbox.providers.openai_provider import OpenAIProvider
+    client = _OAIClient(_OAIResp('{"a": 1}'))
+    p = OpenAIProvider("gpt-6-luna", client=client)
+    schema = {"type": "object"}
+    assert p.generate_structured("sys", [ChatMessage("user", "q")], schema) == {"a": 1}
+    fmt = client.kwargs["response_format"]
+    assert fmt["type"] == "json_schema" and fmt["json_schema"]["strict"] is True
+    assert fmt["json_schema"]["schema"] is schema
+    assert "reasoning_effort" not in client.kwargs  # unset = the model's default
+
+
+@pytest.mark.parametrize("resp", [_OAIResp("not json"), _OAIResp(None, refusal="no"),
+                                  _OAIResp('{"a"', "length"), _OAIResp("[1]")])
+def test_openai_structured_output_problems_raise(resp):
+    from chatbox.providers.openai_provider import OpenAIProvider
+    p = OpenAIProvider("m", client=_OAIClient(resp))
+    with pytest.raises(ProviderError):
+        p.generate_structured("sys", [ChatMessage("user", "q")], {"type": "object"})
+
+
+def test_openai_api_errors_become_provider_errors():
+    import openai
+
+    from chatbox.providers.openai_provider import OpenAIProvider
+
+    class Down(_OAIClient):
+        def create(self, **kwargs):
+            raise openai.APIConnectionError(request=None)
+
+    with pytest.raises(ProviderError):
+        OpenAIProvider("m", client=Down(None)).generate("sys", [ChatMessage("user", "q")])
+
+
+def test_guardrail_schemas_meet_openai_strict_mode(policy):
+    """Strict mode needs every property required and no extra properties."""
+    for schema in (classifier_schema(policy), output_check_schema()):
+        assert set(schema["required"]) == set(schema["properties"])
+        assert schema["additionalProperties"] is False
+
+
+def test_provider_name_switches_answer_and_both_checks(tmp_path):
+    from chatbox.config import load_settings
+    from tests.conftest import ROOT
+
+    cfg = tmp_path / "chatbox.toml"
+    cfg.write_text((ROOT / "chatbox.toml").read_text())
+    s = load_settings(cfg, provider="anthropic")
+    assert s.provider_name == "anthropic" and s.provider_settings["model"] == "claude-haiku-4-5"
+    assert s.guardrails.classifier.provider_settings["model"] == "claude-haiku-4-5"
+
+    (tmp_path / "chatbox.local.toml").write_text('[provider]\nname = "openai"\n')
+    s = load_settings(cfg)
+    assert s.provider_name == "openai" and s.provider_settings["model"] == "gpt-6-luna"
+    for check in (s.guardrails.classifier, s.guardrails.output_check):
+        assert check.provider_settings["model"] == "gpt-6-luna"
+        assert check.provider_settings["reasoning_effort"] == "none"
+    # Shared keys still apply whichever vendor is chosen.
+    assert s.guardrails.classifier.timeout_seconds == 9
+    assert s.guardrails.classifier.provider_settings["max_retries"] == 1

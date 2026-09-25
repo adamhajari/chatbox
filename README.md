@@ -18,16 +18,23 @@ Requires Python 3.11+.
 ```bash
 python3 -m venv .venv && source .venv/bin/activate   # or: uv venv && source .venv/bin/activate
 pip install -e '.[dev]'
-cp .env.example .env        # then put your ANTHROPIC_API_KEY in .env
+cp .env.example .env        # then put your OPENAI_API_KEY (or ANTHROPIC_API_KEY) in .env
 ```
 
 `.env` is git-ignored. Never commit it.
 
-### Anthropic API key
+### Model API key
 
-Chatbox's answers and its safety checks come from Claude, through the Anthropic API.
-Every question costs a fraction of a cent: a run of twelve test questions costs a few
-cents in total.
+Chatbox's answers and its safety checks come from one model vendor, chosen by
+`[provider] name` in `chatbox.toml`: `openai` (the default, `gpt-6-luna`) or `anthropic`
+(Claude, `claude-haiku-4-5`). You need a key for the vendor you choose. Every question
+costs a small fraction of a cent.
+
+**OpenAI:** at [platform.openai.com](https://platform.openai.com/), add credits and set a
+monthly budget under **Limits**, create a key under **API keys**, and put it in `.env` as
+`OPENAI_API_KEY=sk-...`. The same key covers OpenAI text-to-speech.
+
+**Anthropic:**
 
 1. Go to [platform.claude.com](https://platform.claude.com/) and sign in, or create an
    account.
@@ -42,12 +49,14 @@ cents in total.
 5. Put it in `.env`: `ANTHROPIC_API_KEY=sk-ant-...`
 
 Check it works with `chatbox chat`: ask a question and you should get an answer. A
-`401` or `Could not resolve authentication method` error means the key in `.env` is
-missing or mistyped.
+`401`, `Could not resolve authentication method` or `api_key client option must be set`
+error means the key in `.env` for the chosen vendor is missing or mistyped.
 
 ### Voice setup (for `chatbox talk`)
 
-Speech goes through Google Cloud Speech-to-Text v2 and Text-to-Speech.
+Speech-to-text goes through Google Cloud Speech-to-Text v2. Text-to-speech goes through
+Google Cloud Text-to-Speech (Neural2-J by default), or OpenAI (`gpt-4o-mini-tts`) if you
+set `[speech.tts] name = "openai"`.
 Google doesn't log the audio unless you opt in, so leave its "data logging" off. Chatbox
 never writes audio to disk.
 
@@ -59,6 +68,8 @@ never writes audio to disk.
 4. Move the key outside the repo and lock it down:
    `mkdir -p ~/.config/chatbox && mv ~/Downloads/<key>.json ~/.config/chatbox/gcp-speech.json && chmod 600 ~/.config/chatbox/gcp-speech.json`
 5. Add to `.env`: `GOOGLE_APPLICATION_CREDENTIALS=<that path>` and `GOOGLE_CLOUD_PROJECT=<project id>`.
+6. Only for OpenAI text-to-speech: create an API key at platform.openai.com → API keys, set a
+   monthly budget under Limits, and add `OPENAI_API_KEY=<key>` to `.env`.
 
 **Audio devices.** Chatbox uses the system's default mic and speaker. To choose others, run
 `python -m sounddevice` to list devices, then set `input_device` / `output_device` under
@@ -98,7 +109,7 @@ on a Pi, see [docs/development.md](docs/development.md).
 | `policies/default.yaml` | The parent policy (what it talks about, when, how). |
 | `chatbox.toml` | Runtime settings: provider, answering model, guardrail check models, timeouts, session history, logging, file paths, and the settings page's `[web]` host and port. |
 | `chatbox.local.toml` | Per-machine settings (audio devices, GPIO pins), merged over `chatbox.toml`. Never committed; copy `chatbox.local.toml.example` to start. |
-| `.env` | Secrets (`ANTHROPIC_API_KEY`, and for voice `GOOGLE_APPLICATION_CREDENTIALS`, `GOOGLE_CLOUD_PROJECT`). |
+| `.env` | Secrets (`OPENAI_API_KEY` and/or `ANTHROPIC_API_KEY`, and for voice `GOOGLE_APPLICATION_CREDENTIALS`, `GOOGLE_CLOUD_PROJECT`). |
 | `scripts/measure.py` | Times `chatbox chat` end to end, per pipeline step, for comparing machines. |
 | `scripts/gpio_check.py`, `scripts/screen_check.py` | Prove the Pi's button, LED and screen are wired right, on their own (see `docs/hardware.md`). |
 | `scripts/screen_demo.py` | Shows a real question's picture on the screen, with no microphone or speaker needed. |
@@ -115,8 +126,12 @@ on a Pi, see [docs/development.md](docs/development.md).
   page's "Today's questions and answers" and `chatbox log` show. Nothing is deleted
   automatically, and no audio is ever saved. Set it to `false` to keep only a count of
   questions per day (for the daily limit), with no question or answer text.
-- **Model:** set `model` under `[provider.anthropic]`. For `claude-haiku-4-5`, delete the
-  `effort` line; Haiku doesn't accept it.
+- **Model:** `[provider] name` picks the vendor (`openai` or `anthropic`) for the answer
+  and both guardrail checks at once. Each vendor's models are set under
+  `[provider.<vendor>]` and `[guardrails.classifier.<vendor>]` /
+  `[guardrails.output_check.<vendor>]`. For OpenAI, keep `reasoning_effort = "none"`:
+  without it the model reasons first, which is slower and costs more. For
+  `claude-haiku-4-5`, leave out `effort`; Haiku doesn't accept it.
 
 ## Parent settings page
 
@@ -261,11 +276,11 @@ milliseconds. `chatbox chat -v` prints them; with logging on they're stored in
 
 | Setting | Meaning |
 |---|---|
-| `[provider.anthropic] timeout_seconds` | Deadline for the answering model. |
+| `[provider.<vendor>] timeout_seconds` | Deadline for the answering model. |
 | `[guardrails] history_exchanges` | Recent question/answer pairs the checks see. |
 | `[guardrails] length_tolerance` | Fraction over the policy's length limits still accepted (0.25 = 25%). |
 | `[guardrails.output_check] enabled` | Off (`false`) by default: in testing it sometimes rejected harmless answers, such as how chefs chop vegetables. `false` turns layer 4 off entirely, length check included. Saves about 1 s per answered question, but answers are no longer checked before the kid hears them. `chatbox chat` shows "output check OFF" and each answer's steps show `output_check: skipped`. |
-| `[guardrails.classifier]` / `[guardrails.output_check]` | Each has `model`, `max_tokens`, `timeout_seconds` (hard deadline; past it the pipeline fails closed) and `max_retries`. They use the same provider as the answering model. |
+| `[guardrails.classifier]` / `[guardrails.output_check]` | Each has `timeout_seconds` (hard deadline; past it the pipeline fails closed) and `max_retries`, plus a `.anthropic` and an `.openai` subsection with that vendor's `model` and `max_tokens`. They use the same vendor as the answering model (`[provider] name`). |
 
 ## Voice
 
@@ -305,9 +320,11 @@ hold SPACE ─▶ mic streams to speech-to-text ─▶ release ─▶ transcript
 | Setting | Meaning |
 |---|---|
 | `[speech] language` | Language for both services (`en-US`). |
-| `[speech.stt] name`, `[speech.tts] name` | Which vendor (`google`). |
+| `[speech.stt] name` | Speech-to-text vendor (`google`). |
+| `[speech.tts] name` | Text-to-speech vendor: `google` (default) or `openai`. Both vendors' sections stay filled in, so switching is one line. |
 | `[speech.stt.google] model`, `location` | Recognition model and its region. Measured time from release to transcript: `long` / `global` ≈ 0.13 s; `chirp_3` / `us` ≈ 0.75 s; `chirp_2` / `us-central1` ≈ 0.8 s. The Chirp models are newer and may cope better with young children's speech; worth comparing on your own children's voices. |
-| `[speech.tts.google] voice` | Any Chirp 3 HD voice name, e.g. `en-US-Chirp3-HD-Leda`. |
+| `[speech.tts.google] voice` | Any Google voice name, e.g. `en-US-Chirp3-HD-Leda` or `en-US-Neural2-J`. Chirp 3 HD voices stream, so audio starts sooner; other voices (Neural2, WaveNet, …) are made whole and then played. |
+| `[speech.tts.openai] voice`, `model`, `instructions` | An OpenAI voice (`marin`), the model (`gpt-4o-mini-tts`), and a plain-words description of how to speak. Needs `OPENAI_API_KEY` in `.env`. OpenAI requires telling listeners the voice is AI-generated. |
 | `[voice] min_press_seconds` | Shorter presses count as accidental taps. |
 | `[voice] silence_rms` | Recordings quieter than this get "didn't catch that" without calling speech-to-text. |
 | `[voice] stt_timeout_seconds` | Deadline for the transcript after release; past it, the kid hears `something_went_wrong`. |
@@ -391,7 +408,8 @@ Wiring, the parts list and what each failure looks like: `docs/hardware.md`.
 ```bash
 pytest -m "not live"   # unit tests only; the model, speech services and audio devices are mocked
                        # (includes the settings page, via FastAPI's test client)
-pytest                 # also runs the live smoke tests when ANTHROPIC_API_KEY is set
+pytest                 # also runs the live smoke tests when the chosen vendor's key is set
+CHATBOX_PROVIDER=anthropic pytest -m live -s   # the same live tests on the other vendor
 pytest -m live -s      # just the live smoke tests, printing each step and its time
                        # (the voice one needs the Google keys; it plays tests/fixtures/question.wav,
                        #  a synthetic voice, through real speech-to-text and text-to-speech.

@@ -121,7 +121,43 @@ class GoogleTextToSpeech:
         ))
         yield tts.StreamingSynthesizeRequest(input=tts.StreamingSynthesisInput(text=text))
 
+    def warm(self) -> None:
+        """Open the gRPC connection now (listing voices is free), so speaking starts sooner."""
+        self._client.list_voices(language_code=self.language, timeout=self.timeout_seconds)
+
+    @property
+    def streams(self) -> bool:
+        # Google's streaming synthesis only takes Chirp 3 HD voices; Neural2, WaveNet,
+        # Standard etc. go through the one-shot call instead.
+        return "Chirp3-HD" in self.voice
+
+    def _synthesize_whole(self, text: str) -> Iterator[bytes]:
+        import io
+        import wave
+
+        from google.cloud import texttospeech as tts
+
+        try:
+            response = self._client.synthesize_speech(
+                input=tts.SynthesisInput(text=text),
+                voice=tts.VoiceSelectionParams(language_code=self.language, name=self.voice),
+                audio_config=tts.AudioConfig(audio_encoding=tts.AudioEncoding.LINEAR16,
+                                             sample_rate_hertz=self.sample_rate),
+                timeout=self.timeout_seconds,
+            )
+        except gexc.GoogleAPIError as e:
+            raise _speech_error(e) from e
+        # LINEAR16 from the one-shot call comes wrapped in a WAV header; hand out bare PCM.
+        with wave.open(io.BytesIO(response.audio_content)) as w:
+            pcm = w.readframes(w.getnframes())
+        step = self.sample_rate // 10 * 2  # 0.1 s of 16-bit mono
+        for i in range(0, len(pcm), step):
+            yield pcm[i:i + step]
+
     def synthesize(self, text: str) -> Iterator[bytes]:
+        if not self.streams:
+            yield from self._synthesize_whole(text)
+            return
         # The deadline covers the whole stream, and playback is slower than synthesis,
         # so read the stream as fast as it arrives (in a thread) and hand chunks out
         # from a buffer. Otherwise a long answer times out partway through playback.

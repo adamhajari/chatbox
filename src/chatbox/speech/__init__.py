@@ -16,4 +16,8 @@ def make_tts(name: str, settings: dict) -> TextToSpeech:
         from chatbox.speech.google import GoogleTextToSpeech
 
         return GoogleTextToSpeech(**settings)
-    raise ValueError(f"unknown text-to-speech {name!r} (available: google)")
+    if name == "openai":
+        from chatbox.speech.openai_speech import OpenAITextToSpeech
+
+        return OpenAITextToSpeech(**settings)
+    raise ValueError(f"unknown text-to-speech {name!r} (available: google, openai)")

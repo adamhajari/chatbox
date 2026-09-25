@@ -114,8 +114,12 @@ def _screen(data: dict, base: Path) -> ScreenSettings | None:
     )
 
 
-def _check(data: dict) -> CheckSettings:
-    settings = dict(data)
+def _check(data: dict, vendor: str) -> CheckSettings:
+    """A guardrail check's settings: the shared keys (timeout, retries, enabled) plus the
+    [guardrails.<check>.<vendor>] subsection for the vendor in [provider] name, since
+    model names differ by vendor. Keys set directly on the check still work."""
+    settings = {k: v for k, v in data.items() if not isinstance(v, dict)}
+    settings.update(data.get(vendor, {}))
     enabled = bool(settings.pop("enabled", True))
     timeout = float(settings.get("timeout_seconds", 4.0))
     settings["timeout_seconds"] = timeout
@@ -158,7 +162,8 @@ def local_config_path(path: str | Path = "chatbox.toml") -> Path:
     return Path(path).with_suffix(".local.toml")
 
 
-def load_settings(path: str | Path = "chatbox.toml") -> Settings:
+def load_settings(path: str | Path = "chatbox.toml", provider: str | None = None) -> Settings:
+    """`provider` overrides [provider] name (e.g. to run the live tests on another vendor)."""
     path = Path(path).resolve()
     data = tomllib.loads(path.read_text(encoding="utf-8"))
     local = local_config_path(path)
@@ -169,21 +174,21 @@ def load_settings(path: str | Path = "chatbox.toml") -> Settings:
         data = _merge(data, overrides)
         local_used = local
     base = path.parent
-    provider = data["provider"]
-    name = provider["name"]
+    provider_section = data["provider"]
+    name = provider or provider_section["name"]
     g = data["guardrails"]
     return Settings(
         policy_path=base / data["paths"]["policy"],
         database_path=base / data["paths"]["database"],
         provider_name=name,
-        provider_settings=dict(provider.get(name, {})),
+        provider_settings=dict(provider_section.get(name, {})),
         logging_enabled=bool(data.get("logging", {}).get("enabled", False)),
         max_history_exchanges=int(data.get("chat", {}).get("max_history_exchanges", 20)),
         guardrails=GuardrailSettings(
             history_exchanges=int(g.get("history_exchanges", 6)),
             length_tolerance=float(g.get("length_tolerance", 0.25)),
-            classifier=_check(g["classifier"]),
-            output_check=_check(g["output_check"]),
+            classifier=_check(g["classifier"], name),
+            output_check=_check(g["output_check"], name),
         ),
         speech=_speech(data),
         screen=_screen(data, base),

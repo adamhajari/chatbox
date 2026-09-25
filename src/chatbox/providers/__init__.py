@@ -8,4 +8,8 @@ def make_provider(name: str, settings: dict) -> ModelProvider:
         from chatbox.providers.anthropic_provider import AnthropicProvider
 
         return AnthropicProvider(**settings)
-    raise ValueError(f"unknown provider {name!r} (available: anthropic)")
+    if name == "openai":
+        from chatbox.providers.openai_provider import OpenAIProvider
+
+        return OpenAIProvider(**settings)
+    raise ValueError(f"unknown provider {name!r} (available: anthropic, openai)")

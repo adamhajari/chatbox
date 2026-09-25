@@ -17,8 +17,8 @@ happen on your computer; everything after that happens on the Pi, over SSH.
   as the Pi rebooting when the speaker gets loud
 - A microSD card of 8 GB or more
 - A computer with an SD card reader, on the same Wi-Fi network the Pi will join
-- An Anthropic API key: see the README's
-  [Anthropic API key](../README.md#anthropic-api-key) steps
+- An OpenAI (or Anthropic) API key: see the README's
+  [Model API key](../README.md#model-api-key) steps
 - For voice (`chatbox talk`): a Google Cloud service-account key, set up as described in
   the README's [Voice setup](../README.md#voice-setup-for-chatbox-talk)
 - For voice: the button, light, amplifier, speaker and microphone from
@@ -195,9 +195,9 @@ nano .env          # Ctrl-O to save, Ctrl-X to quit
 chmod 600 .env
 ```
 
-Set `ANTHROPIC_API_KEY` to your key (the README's
-[Anthropic API key](../README.md#anthropic-api-key) steps show how to get one). That's
-all text chat needs.
+Set `OPENAI_API_KEY` (or `ANTHROPIC_API_KEY`, if `[provider] name = "anthropic"`) to
+your key (the README's [Model API key](../README.md#model-api-key) steps show how to get
+one). That's all text chat needs.
 
 For voice, you also need the Google service-account key. Create it on your computer by
 following the README's [Voice setup](../README.md#voice-setup-for-chatbox-talk), then copy
@@ -220,6 +220,9 @@ GOOGLE_APPLICATION_CREDENTIALS=/home/<user>/.config/chatbox/gcp-speech.json
 GOOGLE_CLOUD_PROJECT=your-project-id
 ```
 Use the full path, not `~`. It's read as a literal path, and `~` silently fails.
+
+Text-to-speech also needs `OPENAI_API_KEY=<key>` in the Pi's `.env` (the same key as on
+your computer is fine, but a separate key for the Pi shows its cost on its own).
 
 **Verify:**
 ```sh
@@ -246,7 +249,7 @@ cd ~/chatbox
 |---|---|
 | `Config file not found: chatbox.toml` | you're not in `~/chatbox`; `cd` there first |
 | `Policy file not found: …` | same |
-| `Could not resolve authentication method` / 401 from the API | `ANTHROPIC_API_KEY` is missing or wrong in `.env` |
+| `Could not resolve authentication method` / `api_key client option must be set` / 401 from the API | The key for the chosen vendor (`OPENAI_API_KEY` or `ANTHROPIC_API_KEY`) is missing or wrong in `.env` |
 | every answer is the "something went wrong" reply | the Pi can't reach the API. Check `ping -c3 api.anthropic.com`, and that the clock is right (`date`), since a wrong clock breaks secure connections |
 
 ---

@@ -8,6 +8,24 @@ from typing import Any, Literal, Protocol
 
 Role = Literal["user", "assistant"]
 
+# How long an idle HTTPS connection to a model or speech API is kept for reuse. The SDKs
+# default to 5 s, shorter than a child takes to ask a question, so every question paid
+# for new connections. Warm-ups on the button press (`warm()`) open them while the child
+# is still talking; this keeps them open until the real calls go out.
+KEEPALIVE_SECONDS = 60.0
+
+
+def keepalive_limits(sdk):
+    """Connection limits for `sdk.DefaultHttpxClient` (sdk = the anthropic or openai
+    module). Built from whichever HTTP library that SDK version uses: httpx2 for
+    anthropic 1.x / openai 3.x, httpx before that."""
+    import importlib
+
+    base = next(c for c in sdk.DefaultHttpxClient.__mro__[1:] if c.__name__ == "Client")
+    http = importlib.import_module(base.__module__.split(".")[0])
+    return http.Limits(max_connections=20, max_keepalive_connections=10,
+                       keepalive_expiry=KEEPALIVE_SECONDS)
+
 
 @dataclass(frozen=True)
 class ChatMessage:
@@ -33,6 +51,9 @@ class ProviderError(Exception):
 class ModelProvider(Protocol):
     name: str
     model: str
+
+    # Optional: `def warm(self) -> None` opens the connection ahead of a call (see
+    # KEEPALIVE_SECONDS). Callers look it up with getattr and ignore its failures.
 
     def generate(self, system: str, messages: list[ChatMessage]) -> ModelReply: ...
 

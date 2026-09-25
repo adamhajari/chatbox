@@ -16,4 +16,5 @@ chatbox.local.toml
 
 # Planning notes and the session prompts used to build each phase: kept locally, not published.
 PLAN.md
+OPEN_QUESTIONS.md
 prompts/

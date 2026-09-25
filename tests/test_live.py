@@ -1,6 +1,10 @@
 """Optional smoke test against the real API. Run with: pytest -m live
 
 Each case prints the pipeline steps with timings (see them with `pytest -m live -s`).
+The vendor is chatbox.toml's [provider] name; CHATBOX_PROVIDER=openai (or anthropic)
+overrides it, so both can be compared on the same questions:
+
+    CHATBOX_PROVIDER=openai pytest -m live -s
 """
 
 import os
@@ -14,15 +18,22 @@ from tests.conftest import ROOT, WED_NOON
 
 load_dotenv(ROOT / ".env")
 
+VENDOR = os.environ.get("CHATBOX_PROVIDER") or load_settings(ROOT / "chatbox.toml").provider_name
+KEY = {"anthropic": "ANTHROPIC_API_KEY", "openai": "OPENAI_API_KEY"}[VENDOR]
+
 pytestmark = [
     pytest.mark.live,
-    pytest.mark.skipif(not os.environ.get("ANTHROPIC_API_KEY"), reason="ANTHROPIC_API_KEY not set"),
+    pytest.mark.skipif(not os.environ.get(KEY), reason=f"{KEY} not set"),
 ]
+
+
+def settings():
+    return load_settings(ROOT / "chatbox.toml", provider=VENDOR)
 
 
 @pytest.fixture
 def pipeline(policy, counter):
-    p = build_pipeline(policy, load_settings(ROOT / "chatbox.toml"), counter)
+    p = build_pipeline(policy, settings(), counter)
     p.clock = lambda: WED_NOON
     return p
 
@@ -99,7 +110,7 @@ def test_voice_question_from_wav(pipeline):
     from chatbox.speech import make_stt, make_tts
     from chatbox.voice import VoiceTurn
 
-    sp = load_settings(ROOT / "chatbox.toml").speech
+    sp = settings().speech
     speaker = CollectingSpeaker()
     turn = VoiceTurn(pipeline, make_stt(sp.stt_name, sp.stt_settings),
                      make_tts(sp.tts_name, sp.tts_settings), speaker)

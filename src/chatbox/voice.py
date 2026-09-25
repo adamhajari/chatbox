@@ -22,7 +22,7 @@ from concurrent.futures import TimeoutError as FutureTimeout
 from dataclasses import dataclass, field
 from typing import Iterable, Iterator, Literal, Protocol
 
-from chatbox.pipeline import Answer, Pipeline
+from chatbox.pipeline import Answer, Pipeline, warm_up
 from chatbox.speech import SpeechToText, TextToSpeech, Transcript
 
 Cue = Literal["listening", "stopped", "cancel", "error"]
@@ -123,6 +123,10 @@ class VoiceTurn:
 
     def run(self, audio: Iterable[bytes], sample_rate: int) -> VoiceResult:
         """`audio` yields PCM while the button is held and ends on release."""
+        # The button was just pressed: open the connections the answer will need while
+        # the child is still talking (they would otherwise be set up after release).
+        self.pipeline.warm()
+        warm_up(self.tts)
         steps: list[dict] = []
 
         def step(name: str, decision: str, detail: str = "", ms: int | None = None) -> None:

@@ -298,7 +298,8 @@ def test_cues_are_short_pcm():
 
 def test_speech_settings_load():
     sp = load_settings(ROOT / "chatbox.toml").speech
-    assert sp.stt_name == "google" and sp.tts_name == "google"
+    assert sp.stt_name == "google" and sp.tts_name in ("openai", "google")
+    assert sp.tts_settings["voice"]  # whichever vendor is chosen, its voice is set
     assert sp.stt_settings["language"] == sp.tts_settings["language"] == "en-US"
     assert {"min_press_seconds", "silence_rms", "stt_timeout_seconds"} <= set(sp.voice)
 
@@ -401,6 +402,169 @@ def test_google_tts_reads_stream_ahead_of_slow_playback():
     assert next(chunks) == b"1"   # the speaker is still "playing" the first chunk...
     assert finished.wait(1.0)     # ...but the stream has already been read to the end
     assert list(chunks) == [b"2", b"3"]
+
+
+def test_google_tts_non_chirp_voice_uses_one_shot_call():
+    import io
+    import wave
+
+    from google.api_core import exceptions as gexc
+
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as w:
+        w.setnchannels(1), w.setsampwidth(2), w.setframerate(24_000)
+        w.writeframes(b"\x01\x00" * 3000)  # 0.125 s
+
+    class Client:
+        error = None
+
+        def synthesize_speech(self, input, voice, audio_config, timeout):
+            self.voice = voice.name
+            if self.error:
+                raise self.error
+            return type("R", (), {"audio_content": buf.getvalue()})()
+
+        def streaming_synthesize(self, *a, **k):
+            raise AssertionError("Neural2 voices can't stream")
+
+    client = Client()
+    tts = GoogleTextToSpeech(voice="en-US-Neural2-J", client=client)
+    assert not tts.streams and GoogleTextToSpeech(client=client).streams
+    chunks = list(tts.synthesize("Hello"))
+    assert b"".join(chunks) == b"\x01\x00" * 3000  # WAV header stripped
+    assert [len(c) for c in chunks] == [4800, 1200]  # 0.1 s pieces
+    assert client.voice == "en-US-Neural2-J"
+    client.error = gexc.PermissionDenied("no")
+    with pytest.raises(SpeechError):
+        list(tts.synthesize("Hello"))
+
+
+# ---- warming connections on the button press -------------------------------------
+
+class Warmable:
+    """Records warm() calls, optionally failing them; the calls happen in threads."""
+
+    def __init__(self, fail=False):
+        import threading
+        self.warmed, self.fail = threading.Event(), fail
+
+    def warm(self):
+        self.warmed.set()
+        if self.fail:
+            raise RuntimeError("offline")
+
+
+def test_press_warms_answer_classifier_checker_and_voice(make, events):
+    from chatbox.guardrails import ModelClassifier, ModelOutputChecker
+    from tests.conftest import FakeProvider
+
+    class WarmProvider(FakeProvider, Warmable):
+        def __init__(self, fail=False):
+            FakeProvider.__init__(self)
+            Warmable.__init__(self, fail)
+
+    class WarmTTS(FakeTTS, Warmable):
+        def __init__(self, events):
+            FakeTTS.__init__(self, events)
+            Warmable.__init__(self, fail=True)  # a failed warm-up changes nothing
+
+    answer, cls_p, chk_p = WarmProvider(), WarmProvider(fail=True), WarmProvider()
+    classifier, checker = ModelClassifier(cls_p), ModelOutputChecker(chk_p)
+    classifier.classify = AllowAll().classify
+    checker.check = PassAll().check
+    turn, speaker, tts = make(provider=answer, classifier=classifier, checker=checker,
+                              tts=WarmTTS(events))
+    result = turn.run(speech(), RATE)
+    for thing in (answer, cls_p, chk_p, tts):
+        assert thing.warmed.wait(1.0)
+    assert result.answer.answered_by == "model" and speaker.played
+
+
+def test_things_without_warm_are_skipped(make):
+    turn, speaker, _ = make()  # fakes have no warm(): nothing to do, nothing breaks
+    assert turn.run(speech(), RATE).answer.answered_by == "model"
+
+
+def test_screen_classifier_wrapper_passes_warm_through():
+    from chatbox.audio.picture import WatchingClassifier
+
+    inner = Warmable()
+    WatchingClassifier(inner, show=None).warm()
+    assert inner.warmed.is_set()
+
+
+def test_real_clients_keep_idle_connections_for_a_minute():
+    from chatbox.providers.base import KEEPALIVE_SECONDS, keepalive_limits
+
+    assert KEEPALIVE_SECONDS >= 30  # longer than a question plus its answer
+    import anthropic
+    import openai
+
+    for sdk in (anthropic, openai):
+        assert keepalive_limits(sdk).keepalive_expiry == KEEPALIVE_SECONDS
+
+
+class _FakeOpenAI:
+    """Just enough of the OpenAI client for audio.speech.with_streaming_response.create."""
+
+    def __init__(self, chunks, error=None, finished=None):
+        self.chunks, self.error, self.finished, self.kwargs = chunks, error, finished, None
+        self.audio = self
+        self.speech = self
+        self.with_streaming_response = self
+
+    def create(self, **kwargs):
+        self.kwargs = kwargs
+        return self
+
+    def __enter__(self):
+        if self.error:
+            raise self.error
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def iter_bytes(self):
+        yield from self.chunks
+        if self.finished:
+            self.finished.set()
+
+
+def test_openai_tts_yields_whole_samples_and_wraps_errors():
+    import openai
+
+    from chatbox.speech.openai_speech import OpenAITextToSpeech
+
+    client = _FakeOpenAI([b"abc", b"", b"de", b"f"])
+    tts = OpenAITextToSpeech(voice="marin", client=client)
+    # 16-bit samples are never split across chunks, and nothing is dropped.
+    assert list(tts.synthesize("Hello")) == [b"ab", b"cd", b"ef"]
+    assert tts.sample_rate == 24_000
+    assert client.kwargs["input"] == "Hello" and client.kwargs["voice"] == "marin"
+    assert client.kwargs["response_format"] == "pcm"
+
+    client.error = openai.APIConnectionError(request=None)
+    with pytest.raises(SpeechError):
+        list(tts.synthesize("Hello"))
+
+
+def test_openai_tts_reads_stream_ahead_of_slow_playback():
+    import threading
+
+    from chatbox.speech.openai_speech import OpenAITextToSpeech
+
+    finished = threading.Event()
+    chunks = OpenAITextToSpeech(client=_FakeOpenAI([b"11", b"22", b"33"], finished=finished)
+                                ).synthesize("Hello")
+    assert next(chunks) == b"11"
+    assert finished.wait(1.0)
+    assert list(chunks) == [b"22", b"33"]
+
+
+def test_make_tts_openai():
+    tts = make_tts("openai", {"language": "en-US", "voice": "coral", "client": _FakeOpenAI([])})
+    assert tts.name == "openai" and tts.voice == "coral"
 
 
 # ---- running where there is no sound card (Phase 6: a fresh Pi) --------------------
@@ -681,7 +845,7 @@ def test_local_config_overrides_only_the_keys_it_names(tmp_path):
     # Sibling keys in the same sections survive.
     assert settings.speech.voice["sample_rate"] == 16000
     assert settings.guardrails.classifier.timeout_seconds == 12
-    assert settings.guardrails.classifier.provider_settings["model"] == "claude-haiku-4-5"
+    assert settings.guardrails.classifier.provider_settings["model"]  # sibling keys kept
     assert settings.local_config == tmp_path / "chatbox.local.toml"
 
 

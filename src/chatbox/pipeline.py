@@ -19,6 +19,8 @@ next question (D20). Each question uses the snapshot taken when it started.
 
 from __future__ import annotations
 
+import logging
+import threading
 import time
 from concurrent.futures import Future, ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FutureTimeout
@@ -38,6 +40,8 @@ from chatbox.log import Controls, DailyCounter, ExchangeLog, ExchangeRecord
 from chatbox.policy import Policy
 from chatbox.policy_store import PolicySnapshot, PolicyStore
 from chatbox.providers.base import ChatMessage, ModelProvider, ModelReply
+
+_log = logging.getLogger(__name__)
 
 __all__ = ["Answer", "Classification", "OutputVerdict", "Pipeline", "canned_reply_for"]
 
@@ -92,6 +96,21 @@ class Answer:
     latency_ms: int = 0
 
 
+def warm_up(*things) -> None:
+    """Call `warm()` on each thing that has one, each in its own daemon thread."""
+    for thing in things:
+        if warm := getattr(thing, "warm", None):
+            threading.Thread(target=_quietly, args=(warm,), daemon=True,
+                             name="chatbox-warm").start()
+
+
+def _quietly(fn) -> None:
+    try:
+        fn()
+    except Exception as e:  # noqa: BLE001 - a warm-up is only ever an optimisation
+        _log.debug("warm-up failed (harmless): %s", e)
+
+
 class Pipeline:
     def __init__(
         self,
@@ -127,6 +146,12 @@ class Pipeline:
     def policy(self) -> Policy:
         """The policy the next question will use."""
         return self.store.policy
+
+    def warm(self) -> None:
+        """Open connections for the calls a question makes (answer, classifier, output
+        check), in the background, so they're ready when the question arrives. Returns
+        at once; failures are ignored, since the real call just connects as usual."""
+        warm_up(self.provider, self.classifier, self.output_checker)
 
     @property
     def system_prompt(self) -> str:

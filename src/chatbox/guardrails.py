@@ -138,6 +138,10 @@ class ModelClassifier:
         self.provider = provider
         self.history_exchanges = history_exchanges
 
+    def warm(self) -> None:
+        if warm := getattr(self.provider, "warm", None):
+            warm()
+
     def classify(self, question: str, history: list[ChatMessage], policy: Policy) -> Classification:
         user = (
             f"<conversation_so_far>\n{_transcript(history, self.history_exchanges)}\n</conversation_so_far>\n\n"
@@ -261,6 +265,10 @@ class ModelOutputChecker:
         self.provider = provider
         self.history_exchanges = history_exchanges
         self.length_tolerance = length_tolerance
+
+    def warm(self) -> None:
+        if warm := getattr(self.provider, "warm", None):
+            warm()
 
     def check(
         self, question: str, answer: str, history: list[ChatMessage], policy: Policy
