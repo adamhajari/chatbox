@@ -239,7 +239,8 @@ installed command; run `source .venv/bin/activate` first if you'd rather type `c
 
 ```sh
 cd ~/chatbox
-.venv/bin/chatbox check-policy      # OK: …/policies/default.yaml (version …)
+.venv/bin/chatbox check-policy      # OK: …/policies/local.yaml (version …); the first run
+                                    # creates local.yaml from default.yaml and says so
 .venv/bin/chatbox chat -v           # ask a question; -v prints each step
 ```
 

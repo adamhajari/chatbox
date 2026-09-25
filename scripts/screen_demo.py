@@ -104,10 +104,11 @@ def main() -> None:
     classifier = None
     if args.subject is None:
         from chatbox.guardrails import ModelClassifier
+        from chatbox.config import ensure_policy
         from chatbox.policy import load_policy
         from chatbox.providers import make_provider
 
-        policy = load_policy(settings.policy_path)
+        policy = load_policy(ensure_policy(settings)[0])
         classifier = ModelClassifier(
             make_provider(settings.provider_name,
                           settings.guardrails.classifier.provider_settings),

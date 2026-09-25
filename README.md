@@ -106,7 +106,8 @@ on a Pi, see [docs/development.md](docs/development.md).
 
 | File | What it is |
 |---|---|
-| `policies/default.yaml` | The parent policy (what it talks about, when, how). |
+| `policies/local.yaml` | This machine's parent policy (what it talks about, when, how): the one Chatbox uses and the settings page edits. Not tracked by git; created from `policies/default.yaml` the first time Chatbox runs. |
+| `policies/default.yaml` | The tracked starting policy. Changing it doesn't affect a machine that already has `local.yaml`. |
 | `chatbox.toml` | Runtime settings: provider, answering model, guardrail check models, timeouts, session history, logging, file paths, and the settings page's `[web]` host and port. |
 | `chatbox.local.toml` | Per-machine settings (audio devices, GPIO pins), merged over `chatbox.toml`. Never committed; copy `chatbox.local.toml.example` to start. |
 | `.env` | Secrets (`OPENAI_API_KEY` and/or `ANTHROPIC_API_KEY`, and for voice `GOOGLE_APPLICATION_CREDENTIALS`, `GOOGLE_CLOUD_PROJECT`). |
@@ -176,7 +177,7 @@ computer is shown but can't be switched off.
   silently undoing the first one's changes.
 
 **How live updates work.** The settings page runs inside the Chatbox process, so it shares
-Chatbox's in-memory policy. A save (1) checks the edit, (2) writes `policies/default.yaml`
+Chatbox's in-memory policy. A save (1) checks the edit, (2) writes `policies/local.yaml`
 by writing a temporary file and renaming it over the old one, so a crash can't leave a
 half-written file, and (3) switches the in-memory policy. The next question uses the new
 policy everywhere: system prompt, classifier and output check, schedule and daily limit,
@@ -195,7 +196,7 @@ private network ranges, and forms posted from other websites, are refused.
 > unblock topics or lift the daily limit. Only run it with `--web` while you're using it,
 > and not on a network you share with people you don't trust.
 
-**What happens to the file's comments.** A save rewrites `policies/default.yaml` from the
+**What happens to the file's comments.** A save rewrites `policies/local.yaml` from the
 saved policy. The comment block at the top of the file is kept; any other comments, blank
 lines, and YAML styles (such as `>-` for long text) are lost. The guidance that used to
 live there is in this README and in the help text on the page.
@@ -206,7 +207,10 @@ The policy is plain YAML, checked against a strict schema (`src/chatbox/policy.p
 Unknown or misspelled keys are rejected, so typos don't silently do nothing. You can
 still edit it by hand (with Chatbox stopped, or restart it afterwards):
 
-1. Edit `policies/default.yaml`.
+1. Edit `policies/local.yaml` (this machine's copy; `[paths] policy` in `chatbox.toml`).
+   To start over from the default, delete it: Chatbox copies `policies/default.yaml`
+   again on its next run. Changes that should reach every machine go in
+   `default.yaml`, but a machine that already has a `local.yaml` keeps its own.
 2. Bump `policy_version` by one. Every log row records the version plus a content hash, so
    you can tell which rules produced which answer.
 3. Run `chatbox check-policy`, then `chatbox show-prompt` to see what the model will be told.
@@ -417,4 +421,4 @@ pytest -m live -s      # just the live smoke tests, printing each step and its t
 ```
 
 Unit tests use a frozen copy of the policy (`tests/fixtures/policy.yaml`), so editing
-`policies/default.yaml` doesn't break them. The live tests use it too.
+`policies/local.yaml` or `policies/default.yaml` doesn't break them. The live tests use it too.

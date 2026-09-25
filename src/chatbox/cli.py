@@ -8,11 +8,22 @@ from pathlib import Path
 from dotenv import load_dotenv
 from pydantic import ValidationError
 
-from chatbox.config import ConfigError, load_settings
+from chatbox.config import ConfigError, ensure_policy, load_settings
 from chatbox.log import Controls, DailyCounter, ExchangeLog
 from chatbox.policy import load_policy
 from chatbox.policy_store import PolicyStore
 from chatbox.prompt import compile_system_prompt
+
+
+def _policy_path(args, settings) -> Path:
+    """--policy if given, else this machine's policy (created from the default if new)."""
+    if args.policy:
+        return args.policy
+    path, created = ensure_policy(settings)
+    if created:
+        print(f"Created {path} from {settings.policy_default_path.name}: this machine's policy, "
+              "which the settings page edits. It isn't tracked by git.", file=sys.stderr)
+    return path
 
 
 def _load_policy_or_exit(path: Path):
@@ -59,7 +70,7 @@ def _open_db(args, settings):
 def cmd_chat(args, settings) -> None:
     from chatbox.pipeline import build_pipeline
 
-    path = args.policy or settings.policy_path
+    path = _policy_path(args, settings)
     store = PolicyStore(_load_policy_or_exit(path), path)
     policy = store.policy
     counter, controls, log = _open_db(args, settings)
@@ -163,7 +174,7 @@ def cmd_talk(args, settings) -> None:
     if problem:
         sys.exit(f"chatbox talk needs a microphone and a speaker, but {problem}\n"
                  "`chatbox chat` works without them.")
-    path = args.policy or settings.policy_path
+    path = _policy_path(args, settings)
     store = PolicyStore(_load_policy_or_exit(path), path)
     policy = store.policy
     counter, controls, log = _open_db(args, settings)
@@ -284,13 +295,13 @@ def _start_screen(settings, pipeline):
 
 
 def cmd_check_policy(args, settings) -> None:
-    path = args.policy or settings.policy_path
+    path = _policy_path(args, settings)
     policy = _load_policy_or_exit(path)
     print(f"OK: {path} ({policy.version_label()})")
 
 
 def cmd_show_prompt(args, settings) -> None:
-    print(compile_system_prompt(_load_policy_or_exit(args.policy or settings.policy_path)))
+    print(compile_system_prompt(_load_policy_or_exit(_policy_path(args, settings))))
 
 
 def cmd_log(args, settings) -> None:

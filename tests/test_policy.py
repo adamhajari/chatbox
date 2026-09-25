@@ -67,3 +67,60 @@ def test_version_label_changes_with_content(policy_data):
 def test_json_schema_available():
     schema = policy_json_schema()
     assert "household_age" in schema["properties"]
+
+
+# ---- this machine's policy: policies/local.yaml, made from the tracked default ----------
+
+def _settings_in(tmp_path):
+    import shutil
+
+    from chatbox.config import load_settings
+    from tests.conftest import ROOT
+
+    shutil.copy(ROOT / "chatbox.toml", tmp_path / "chatbox.toml")
+    (tmp_path / "policies").mkdir()
+    shutil.copy(DEFAULT_POLICY, tmp_path / "policies" / "default.yaml")
+    return load_settings(tmp_path / "chatbox.toml")
+
+
+def test_settings_point_at_the_local_policy_and_its_default(tmp_path):
+    s = _settings_in(tmp_path)
+    assert s.policy_path == tmp_path / "policies" / "local.yaml"
+    assert s.policy_default_path == tmp_path / "policies" / "default.yaml"
+
+
+def test_local_policy_is_created_from_the_default_once(tmp_path):
+    from chatbox.config import ensure_policy
+
+    s = _settings_in(tmp_path)
+    path, created = ensure_policy(s)
+    assert created and path == s.policy_path
+    assert path.read_text() == s.policy_default_path.read_text()
+    assert load_policy(path) == load_policy(DEFAULT_POLICY)
+
+    path.write_text(path.read_text().replace("household_age: 15", "household_age: 6"))
+    again, created = ensure_policy(s)  # an existing copy is never overwritten
+    assert not created and "household_age: 6" in again.read_text()
+
+
+def test_settings_page_saves_go_to_the_local_copy_not_the_default(tmp_path):
+    from chatbox.config import ensure_policy
+    from chatbox.policy_store import PolicyStore
+
+    s = _settings_in(tmp_path)
+    before = s.policy_default_path.read_text()
+    store = PolicyStore.load(ensure_policy(s)[0])
+    data = store.policy.model_dump(mode="json")
+    data["household_age"] = 7
+    store.save(data)
+    assert load_policy(s.policy_path).household_age == 7
+    assert s.policy_default_path.read_text() == before
+
+
+def test_no_default_and_no_local_policy_is_left_to_the_caller(tmp_path):
+    from chatbox.config import ensure_policy
+
+    s = _settings_in(tmp_path)
+    s.policy_default_path.unlink()
+    path, created = ensure_policy(s)
+    assert not created and not path.exists()  # the CLI then says "Policy file not found"

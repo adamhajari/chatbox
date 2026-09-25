@@ -1,7 +1,11 @@
 # Runtime settings (not the parent policy). Paths are relative to this file.
 
 [paths]
-policy = "policies/default.yaml"
+# This machine's policy: the one Chatbox uses and the settings page edits. It isn't
+# tracked by git, so a device's settings never collide with `git pull`. If it doesn't
+# exist, Chatbox creates it as a copy of policy_default, the tracked starting point.
+policy = "policies/local.yaml"
+policy_default = "policies/default.yaml"
 database = "data/chatbox.db"
 
 # Parent web UI (chatbox talk --web / chatbox chat --web). No password yet (PLAN.md D7a):

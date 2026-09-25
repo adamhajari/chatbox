@@ -7,6 +7,7 @@ tracked file section by section, so it only needs the handful of keys that diffe
 
 from __future__ import annotations
 
+import shutil
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -14,7 +15,7 @@ from pathlib import Path
 
 @dataclass(frozen=True)
 class Settings:
-    policy_path: Path
+    policy_path: Path          # this machine's policy (git-ignored); the settings page edits it
     database_path: Path
     provider_name: str
     provider_settings: dict
@@ -25,6 +26,8 @@ class Settings:
     screen: ScreenSettings | None = None  # None = no screen; nothing else to check
     web: WebSettings = field(default_factory=lambda: WebSettings())  # [web]: parent UI
     local_config: Path | None = None  # the chatbox.local.toml that was merged in, if any
+    # The tracked starting policy, copied to `policy_path` when that doesn't exist yet.
+    policy_default_path: Path | None = None
 
 
 @dataclass(frozen=True)
@@ -162,6 +165,18 @@ def local_config_path(path: str | Path = "chatbox.toml") -> Path:
     return Path(path).with_suffix(".local.toml")
 
 
+def ensure_policy(settings: Settings) -> tuple[Path, bool]:
+    """This machine's policy file, created from the default policy if it doesn't exist
+    yet. Returns (path, created). Parents' edits go to that copy, so the tracked default
+    never changes on a device and `git pull` never collides with them."""
+    path, default = settings.policy_path, settings.policy_default_path
+    if path.exists() or default is None or default == path or not default.exists():
+        return path, False  # a missing file with no default is reported by the caller
+    path.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(default, path)
+    return path, True
+
+
 def load_settings(path: str | Path = "chatbox.toml", provider: str | None = None) -> Settings:
     """`provider` overrides [provider] name (e.g. to run the live tests on another vendor)."""
     path = Path(path).resolve()
@@ -179,6 +194,7 @@ def load_settings(path: str | Path = "chatbox.toml", provider: str | None = None
     g = data["guardrails"]
     return Settings(
         policy_path=base / data["paths"]["policy"],
+        policy_default_path=base / data["paths"].get("policy_default", "policies/default.yaml"),
         database_path=base / data["paths"]["database"],
         provider_name=name,
         provider_settings=dict(provider_section.get(name, {})),
