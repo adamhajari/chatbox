@@ -92,6 +92,9 @@ def parse_form(form: Form, drop_topic: int | None = None,
         "schedule": {"timezone": one("schedule.timezone"), "windows": windows},
         "limits": {"daily_questions": one("limits.daily_questions")},
         "canned_replies": {k: one(f"canned_replies.{k}") for k in CannedReplies.model_fields},
+        "pictures": {
+            "categories": [c.strip() for c in one("pictures.categories").split(",") if c.strip()],
+        },
     }
 
 

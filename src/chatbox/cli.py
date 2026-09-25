@@ -132,10 +132,11 @@ def _print_screen(show) -> None:
     """With --verbose, what is on the screen right now (or why nothing is)."""
     if show is None:
         return
-    # `previous`, not `last`: a spoken turn has already blanked the screen by now.
-    picture = show.previous
-    if picture is not None:
-        print(f"   · screen: {picture.title or picture.subject} ({picture.source})")
+    # `shown`, not `last`: a spoken turn has already blanked the screen by now.
+    if show.shown:
+        names = " / ".join(f"{p.title or p.subject} ({p.source})" for p in show.shown)
+        more = "; still looking for the other animal" if show.looking else ""
+        print(f"   · screen: {names}{more}")
     elif show.looking:
         # Normal in `chat`, where the answer prints the instant the classifier returns
         # and the lookup has barely started. It appears a moment later.
@@ -287,7 +288,7 @@ def _start_screen(settings, pipeline):
     # The finder sizes pictures for this screen as mounted, so a rotated panel gets
     # landscape images rather than portrait ones it would have to refuse.
     finder = PictureFinder(cache, screen.timeout_seconds, display.size)
-    show = PictureShow(display, finder)
+    show = PictureShow(display, finder, screen.swap_seconds)
     pipeline.classifier = WatchingClassifier(pipeline.classifier, show)
     print(f"Screen: on, pictures cached in {cache}. "
           "Nothing checks a picture before it is shown (PLAN.md D29).")

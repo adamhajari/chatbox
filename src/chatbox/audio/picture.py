@@ -7,9 +7,9 @@ The panel is mounted landscape (320x240), which is the shape most lead images ar
 Built the same way as `chatbox.audio.light`: two wrappers around things the turn
 already uses, so `chatbox/voice.py` and the pipeline stay free of hardware.
 
-    WatchingClassifier  wraps the guardrail classifier. It sees the subject the
-                        classifier reports and starts the lookup right there, while
-                        the answer is still being written.
+    WatchingClassifier  wraps the guardrail classifier. It sees the subject and
+                        picture category the classifier reports and starts the
+                        lookup right there, while the answer is still being written.
     PicturedSpeaker     wraps the `Speaker`. The picture goes up when playback starts
                         and comes down when it ends, so the screen always matches
                         what's happening.
@@ -32,7 +32,7 @@ import threading
 from concurrent.futures import Future, ThreadPoolExecutor
 from typing import Iterable, Protocol
 
-from chatbox.pictures import Picture
+from chatbox.pictures import Picture, search_term
 
 _log = logging.getLogger(__name__)
 
@@ -67,52 +67,83 @@ class NoDisplay:
 class PictureShow:
     """Holds the lookup for the current turn and drives the display.
 
+    Usually one picture. An animal battle has two, one per animal, and while the answer
+    is spoken the screen swaps between them every `swap_seconds`, so the child sees both
+    contenders whatever the answer's length.
+
     Nothing here raises. A screen that fails takes the picture with it and nothing
     else: the child still hears the whole answer.
     """
 
-    def __init__(self, display: Display, finder) -> None:
+    def __init__(self, display: Display, finder, swap_seconds: float = 3.0) -> None:
         self.display = display
         self.finder = finder
+        self.swap_seconds = swap_seconds
         self.last: Picture | None = None      # what is on the screen right now
         # What this turn put on the screen, kept after it is cleared so --verbose can
         # report it: by the time a spoken turn prints its steps, the speaker has
-        # already blanked the screen.
+        # already blanked the screen. `previous` is the latest, `shown` all of them.
         self.previous: Picture | None = None
+        self.shown: list[Picture] = []
         self._lock = threading.Lock()
+        # One draw at a time, and never one after the blank: the swapper and a late
+        # arrival can both want the panel, and clear() must have the last word.
+        self._draw = threading.Lock()
         # The lookup in flight. Nothing waits on it -- it is kept as a handle on the
         # turn's work (the tests wait on it, and a cancel would need it).
         self._pending: Future | None = None
-        self._result: Picture | None = None   # set under the lock the moment it arrives
+        self._results: list[Picture] = []  # this turn's pictures, in order, as they arrive
+        self._wanted = 0        # how many pictures this turn asked for
         self._turn = 0          # bumped per turn, so a late picture knows if it's stale
         self._showing = False   # True between show() and clear(): is anyone speaking?
+        self._stop = threading.Event()   # set by clear(): ends this turn's swapping
 
     # -- called from the classifier, as soon as the subject is known ----------
 
-    def wanted(self, subject: str | None) -> None:
+    def wanted(self, subject: str | None, category: str | None = None,
+               opponent: str | None = None) -> None:
         with self._lock:
             self._turn += 1
-            self._pending = self._result = self.previous = None
-            if not subject:
+            self._pending = self.previous = None
+            self._results, self.shown = [], []
+            subjects = [x for x in (subject, opponent) if x] if subject else []
+            self._wanted = len(subjects)
+            if not subjects:
                 return
             turn = self._turn
-            self._pending = _POOL.submit(self._find, subject, turn)
+            self._pending = _POOL.submit(self._find_all, subjects, category, turn)
 
-    def _find(self, subject: str, turn: int):
+    def _find_all(self, subjects: list[str], category: str | None, turn: int) -> list[Picture]:
+        # One after the other on the one worker: the first can go up while the second
+        # is still being fetched.
+        found = []
+        for subject in subjects:
+            if turn != self._turn:
+                break
+            picture = self._find(subject, category, turn)
+            if picture is not None:
+                found.append(picture)
+        return found
+
+    def _find(self, subject: str, category: str | None, turn: int) -> Picture | None:
         try:
-            picture = self.finder.find(subject)
+            picture = self.finder.find(subject, category)
         except Exception as e:  # noqa: BLE001 - the finder shouldn't raise; if it does, no picture
             _log.debug("picture lookup for %r failed: %s", subject, e)
+            return None
+        if picture is None:
             return None
         with self._lock:
             if turn != self._turn:
                 return None       # a newer question has already replaced this one
             # The result is published and the decision taken inside one lock, so this
             # can't cross with show(): either show() has already set _showing (and this
-            # shows the picture itself), or it is about to and will find _result set.
-            self._result = picture
-            late = self._showing
-        if late and picture is not None:
+            # shows the picture itself), or it is about to and will find it in _results.
+            self._results.append(picture)
+            # Arriving to an empty screen, it goes straight up; otherwise the swapper
+            # brings it in on its next turn.
+            late = self._showing and len(self._results) == 1
+        if late:
             self._put(picture, turn)
         return picture
 
@@ -128,36 +159,64 @@ class PictureShow:
     def show(self) -> None:
         """Playback is starting. Show whatever is ready; never wait for the rest."""
         with self._lock:
+            self._stop.set()                 # a show() without a clear() between
+            self._stop = stop = threading.Event()
             self._showing = True
-            picture, turn = self._result, self._turn
+            picture = self._results[0] if self._results else None
+            turn, swapping = self._turn, self._wanted > 1
         if picture is not None:
             self._put(picture, turn)
+        if swapping:
+            threading.Thread(target=self._swap, args=(turn, stop), daemon=True,
+                             name="chatbox-picture-swap").start()
+
+    def _swap(self, turn: int, stop: threading.Event) -> None:
+        """Take turns between this turn's pictures until clear() says stop."""
+        while not stop.wait(self.swap_seconds):
+            with self._lock:
+                if turn != self._turn or not self._showing:
+                    return
+                pictures, current = list(self._results), self.last
+            if len(pictures) < 2:
+                continue          # the other one hasn't arrived (yet, or at all)
+            at = next((i for i, p in enumerate(pictures) if p is current), -1)
+            self._put(pictures[(at + 1) % len(pictures)], turn)
 
     def clear(self) -> None:
         """The turn is over: the screen goes blank so it never outlives the answer."""
         with self._lock:
             self._showing = False
-            self.last = self._result = None
-        try:
-            self.display.blank()
-        except Exception as e:  # noqa: BLE001
-            _log.debug("couldn't blank the screen: %s", e)
+            self._stop.set()
+            self.last = None
+            self._results = []
+        with self._draw:
+            try:
+                self.display.blank()
+            except Exception as e:  # noqa: BLE001
+                _log.debug("couldn't blank the screen: %s", e)
 
     def close(self) -> None:
+        self._stop.set()
         try:
             self.display.close()
         except Exception as e:  # noqa: BLE001
             _log.debug("couldn't close the screen: %s", e)
 
     def _put(self, picture: Picture, turn: int) -> None:
-        try:
-            self.display.show(picture.image)
-        except Exception as e:  # noqa: BLE001 - a dead screen must not end the turn
-            _log.debug("couldn't show the picture of %r: %s", picture.subject, e)
-            return
-        with self._lock:
-            if turn == self._turn and self._showing:
-                self.last = self.previous = picture
+        with self._draw:
+            with self._lock:
+                if turn != self._turn or not self._showing:
+                    return        # cleared while this waited for the panel
+            try:
+                self.display.show(picture.image)
+            except Exception as e:  # noqa: BLE001 - a dead screen must not end the turn
+                _log.debug("couldn't show the picture of %r: %s", picture.subject, e)
+                return
+            with self._lock:
+                if turn == self._turn and self._showing:
+                    self.last = self.previous = picture
+                    if not any(p is picture for p in self.shown):
+                        self.shown.append(picture)
 
 
 class WatchingClassifier:
@@ -178,8 +237,13 @@ class WatchingClassifier:
     def classify(self, question, history, policy):
         classification = self.classifier.classify(question, history, policy)
         try:
-            self.show.wanted(classification.subject
-                             if classification.decision == "allow" else None)
+            # A picture needs an allowed question, a subject, and one of the parent's
+            # picture categories for it; anything less leaves the screen dark.
+            c = classification
+            if c.decision == "allow" and search_term(c.subject, c.picture_category):
+                self.show.wanted(c.subject, c.picture_category, c.opponent)
+            else:
+                self.show.wanted(None)
         except Exception as e:  # noqa: BLE001 - the screen never fails a classification
             _log.debug("couldn't start the picture lookup: %s", e)
         return classification

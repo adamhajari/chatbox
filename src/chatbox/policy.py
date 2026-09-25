@@ -25,6 +25,12 @@ MAX_REMEMBER_EXCHANGES = 50
 
 _ID_RE = re.compile(r"^[a-z0-9_]+$")
 _HHMM_RE = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
+_CATEGORY_RE = re.compile(r"^[a-z][a-z ]{0,29}$")
+
+# What a policy without a `pictures` section gets. Each is a word Wikipedia's search
+# can use to pick the right article: "python animal", not the programming language.
+DEFAULT_PICTURE_CATEGORIES = ["animal", "plant", "food", "place", "space", "vehicle",
+                              "landmark", "instrument", "science", "geography", "travel"]
 
 
 class _Strict(BaseModel):
@@ -137,6 +143,30 @@ class CannedReplies(_Strict):
     didnt_catch_that: str = Field(min_length=1)
 
 
+class Pictures(_Strict):
+    # The only kinds of thing the screen shows a picture of. The classifier picks one
+    # for each question (or none), and it is added to the search, so a subject is
+    # looked up as "python animal". Empty = no pictures at all.
+    categories: list[str] = Field(default_factory=lambda: list(DEFAULT_PICTURE_CATEGORIES))
+
+    @field_validator("categories", mode="before")
+    @classmethod
+    def _tidy(cls, v: object) -> object:
+        if not isinstance(v, list):
+            return v
+        tidied = [" ".join(str(c).lower().split()) for c in v]
+        return list(dict.fromkeys(c for c in tidied if c))
+
+    @field_validator("categories")
+    @classmethod
+    def _words(cls, v: list[str]) -> list[str]:
+        bad = [c for c in v if c == "none" or not _CATEGORY_RE.match(c)]
+        if bad:
+            raise ValueError(f"use short plain words (letters and spaces, up to 30 characters, "
+                             f"not \"none\"); can't use: {', '.join(bad)}")
+        return v
+
+
 class Policy(_Strict):
     schema_version: Literal[2] = 2
     policy_version: int = Field(ge=1, description="Bump on every edit; logged with each exchange.")
@@ -148,6 +178,7 @@ class Policy(_Strict):
     schedule: Schedule
     limits: Limits
     canned_replies: CannedReplies
+    pictures: Pictures = Field(default_factory=Pictures)
 
     def fingerprint(self) -> str:
         """Short content hash, so a log row identifies the exact policy even if

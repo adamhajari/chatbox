@@ -114,7 +114,7 @@ on a Pi, see [docs/development.md](docs/development.md).
 | `scripts/measure.py` | Times `chatbox chat` end to end, per pipeline step, for comparing machines. |
 | `scripts/gpio_check.py`, `scripts/screen_check.py` | Prove the Pi's button, LED and screen are wired right, on their own (see `docs/hardware.md`). |
 | `scripts/screen_demo.py` | Shows a real question's picture on the screen, with no microphone or speaker needed. |
-| `data/pictures/` | Cached screen pictures, one per subject. Safe to delete; it refills itself. |
+| `data/pictures/` | Cached screen pictures, one per search (subject plus category). Safe to delete; it refills itself. |
 | `data/chatbox.db` | SQLite: per-day question counts, the pause switch, plus the exchange log when logging is on. |
 
 ## Sessions, logging, and models
@@ -347,8 +347,8 @@ A 2.2" SPI display showing a picture of what was asked about while Chatbox answe
 screen supplements the spoken answer and is never needed to understand it.
 
 ```
-classifier (already running) ─▶ subject ─▶ Wikipedia article's lead image ─▶ cache
-                                                                             │
+classifier (already running) ─▶ subject + category ─▶ Wikipedia article's lead image ─▶ cache
+                                                                                        │
         answer starts playing ─▶ show whatever is ready ─── turn ends ─▶ blank
 ```
 
@@ -356,12 +356,25 @@ classifier (already running) ─▶ subject ─▶ Wikipedia article's lead imag
   question, so there is no extra model call and no extra latency. `Classification.subject`
   is the concrete thing the question is about (`"octopus"`, `"the Moon"`), or `None`
   where there isn't one ("why do we have to sleep?"). It never affects a decision.
+- **Only kinds of thing a parent listed get a picture.** The policy's
+  `pictures.categories` (edited on the settings page) lists them: `animal`, `space`,
+  `vehicle` and so on. The classifier picks one for the subject, or none, and the
+  category is added to the search, so "python" is looked up as `python animal` and finds
+  the snake rather than the programming language. No category means no picture. The
+  bare subject is searched first and kept when an article is titled with it exactly
+  ("Eiffel Tower"), because adding the category to an unambiguous subject can pull the
+  search off course ("Eiffel Tower landmark" finds a replica in Texas).
+- **An animal battle shows both animals.** For "who would win, a shark or a crocodile?"
+  the classifier also reports an `opponent`, kept only when the category is `animal`.
+  Both pictures are looked up, one after the other, and while the answer is spoken the
+  screen swaps between them every `[screen] swap_seconds` (3 by default). If only one is
+  found, that one stays up.
 - **Landscape, 320x240.** The panel is 240x320 glass turned 90 degrees (`[screen]
   rotation`), because a photograph of a thing is usually wider than it is tall.
   Pictures are letterboxed to that shape on black, never stretched.
 - **The picture is the Wikipedia article's lead image** for that subject — not a
   Wikimedia Commons free-text image search, which ranks every file anyone has ever
-  uploaded against a word. One API request per subject, then a disk cache, including a
+  uploaded against a word. One API request per search, then a disk cache, including a
   negative entry so a subject with no picture is looked up once.
 - **Speech never waits for a picture.** The lookup runs on its own thread with a hard
   timeout (`[screen] timeout_seconds`). Whatever is ready when the answer starts is
@@ -385,8 +398,8 @@ classifier (already running) ─▶ subject ─▶ Wikipedia article's lead imag
 > **The picture is not checked by any guardrail before a child sees it.** The classifier
 > checks the *question*; nothing checks the image that comes back. This is a real gap in
 > the promise that nothing reaches a child unchecked. Only turn the screen on if an adult
-> is nearby while Chatbox is used. The likely fix is a parent-approved list of subjects,
-> edited from the settings page.
+> is nearby while Chatbox is used. The picture categories narrow what can be looked up,
+> but they don't check the image either.
 
 ### Screen settings (`chatbox.toml`)
 

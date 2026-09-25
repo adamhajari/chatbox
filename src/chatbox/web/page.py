@@ -218,6 +218,17 @@ Windows can't go past midnight.</p>
         out.append("</section>")
         return "\n".join(out)
 
+    def pictures(self) -> str:
+        categories = self.data["pictures"]["categories"]
+        return f"""<section><h2>Pictures on the screen</h2>
+{self.text("pictures.categories", "Kinds of things it shows pictures of",
+           ", ".join(categories),
+           "Separated by commas (for example: animal, space, vehicle). It shows a picture only "
+           "when a question is about one of these, and searches for the kind too, so "
+           "\"python\" finds the snake. Leave empty for no pictures. Only matters if there's "
+           "a screen.", area=True)}
+</section>"""
+
     def canned(self) -> str:
         c = self.data["canned_replies"]
         rows = "".join(self.text(f"canned_replies.{k}", label, c[k], help, area=True)
@@ -306,7 +317,7 @@ def render(
     errors = errors or {}
     page = _Page(data, errors)
     body = "\n".join([page.persona(), page.schedule(), page.answers(), page.honesty(),
-                      page.topics(), page.canned()])
+                      page.topics(), page.pictures(), page.canned()])
     banners = []
     if message:
         banners.append(f'<div class="banner {"ok" if message_ok else "err"}">{_e(message)}</div>')

@@ -8,14 +8,18 @@ import io
 import json
 import threading
 import time
+import urllib.parse
 
 import pytest
 from PIL import Image
 
 from chatbox.audio.picture import NoDisplay, PicturedSpeaker, PictureShow, WatchingClassifier
 from chatbox.config import load_settings
-from chatbox.guardrails import Classification, classifier_schema, parse_classification, parse_subject
-from chatbox.pictures import Picture, PictureFinder, fit, lead_image_url
+from chatbox.guardrails import (Classification, classifier_schema, classifier_system_prompt,
+                                parse_classification, parse_subject)
+from chatbox.policy import Pictures
+from chatbox.pictures import (Picture, PictureFinder, _Deadline, find_image, fit, lead_image_url,
+                              search_term)
 from chatbox.voice import VoiceSettings, VoiceTurn
 from chatbox.pipeline import Pipeline
 from tests.conftest import ROOT, WED_NOON, FakeProvider, PassAll
@@ -90,10 +94,10 @@ def finder(tmp_path, monkeypatch):
 
 
 class Classifies:
-    """A classifier that reports a fixed decision and subject."""
+    """A classifier that reports a fixed decision, subject and picture category."""
 
-    def __init__(self, subject="octopus", decision="allow"):
-        self.subject, self.decision = subject, decision
+    def __init__(self, subject="octopus", decision="allow", category="animal"):
+        self.subject, self.decision, self.category = subject, decision, category
         self.calls = 0
 
     def classify(self, question, history, policy):
@@ -101,7 +105,7 @@ class Classifies:
         topic = None
         if self.decision == "redirect":
             topic = policy.topics.redirect_to_parent[0].id
-        return Classification(self.decision, topic, "test", self.subject)
+        return Classification(self.decision, topic, "test", self.subject, self.category)
 
 
 # ---- the classifier reports a subject (requirement 1) ------------------------------
@@ -126,6 +130,59 @@ def test_a_missing_subject_still_classifies(policy):
     assert c.decision == "allow" and c.subject is None
 
 
+def test_picture_category_is_parsed_from_the_policy_list(policy):
+    data = {"decision": "allow", "topic_id": "none", "reason": "fine", "subject": "python",
+            "picture_category": "animal"}
+    assert parse_classification(data, policy).picture_category == "animal"
+
+
+@pytest.mark.parametrize("value", ["none", "programming language", "", None, 7])
+def test_a_category_outside_the_list_is_none_never_an_error(policy, value):
+    data = {"decision": "allow", "topic_id": "none", "reason": "fine", "subject": "python",
+            "picture_category": value}
+    c = parse_classification(data, policy)
+    assert c.decision == "allow" and c.picture_category is None
+
+
+def test_an_animal_battle_has_an_opponent(policy):
+    data = {"decision": "allow", "topic_id": "none", "reason": "fine", "subject": "shark",
+            "picture_category": "animal", "opponent": "crocodile"}
+    c = parse_classification(data, policy)
+    assert (c.subject, c.picture_category, c.opponent) == ("shark", "animal", "crocodile")
+    assert "opponent" in classifier_schema(policy)["required"]
+
+
+@pytest.mark.parametrize("category, opponent", [
+    ("space", "Mars"),        # not animals: no battle
+    ("none", "crocodile"),
+    ("animal", ""),
+    ("animal", None),
+])
+def test_only_an_animal_battle_keeps_an_opponent(policy, category, opponent):
+    data = {"decision": "allow", "topic_id": "none", "reason": "fine", "subject": "shark",
+            "picture_category": category, "opponent": opponent}
+    assert parse_classification(data, policy).opponent is None
+
+
+def test_the_classifier_is_told_the_parents_categories(policy):
+    p = policy.model_copy(update={"pictures": Pictures(categories=["dinosaur", "truck"])})
+    prompt = classifier_system_prompt(p)
+    assert '"dinosaur", "truck"' in prompt
+    assert classifier_schema(p)["properties"]["picture_category"]["enum"] == ["dinosaur", "truck", "none"]
+
+
+@pytest.mark.parametrize("subject, category, term", [
+    ("python", "animal", "python animal"),
+    ("  the   Moon ", "space", "the Moon space"),
+    ("space shuttle", "space", "space shuttle"),   # already says it
+    ("python", None, None),
+    ("", "animal", None),
+    (None, "animal", None),
+])
+def test_the_search_term_adds_the_category(subject, category, term):
+    assert search_term(subject, category) == term
+
+
 def test_subject_survives_on_redirect_and_refuse(policy):
     blocked = policy.topics.blocked[0].id
     data = {"decision": "refuse", "topic_id": blocked, "reason": "no", "subject": "knife"}
@@ -148,6 +205,8 @@ def test_the_schema_asks_for_a_subject(policy):
     schema = classifier_schema(policy)
     assert schema["properties"]["subject"] == {"type": "string"}
     assert "subject" in schema["required"]
+    assert schema["properties"]["picture_category"]["enum"] == [*policy.pictures.categories, "none"]
+    assert "picture_category" in schema["required"]
     # Everything the decision depends on is untouched.
     assert schema["properties"]["decision"]["enum"] == ["allow", "redirect", "refuse"]
 
@@ -268,10 +327,80 @@ def test_the_api_query_asks_for_the_articles_lead_image(monkeypatch):
             {"title": "Moon", "thumbnail": {"source": "https://example.invalid/m.jpg"}}]}}).encode()
 
     monkeypatch.setattr("chatbox.pictures._get", fake_get)
-    from chatbox.pictures import _Deadline
 
     assert lead_image_url("the Moon", _Deadline(2)) == ("https://example.invalid/m.jpg", "Moon")
     assert "prop=pageimages" in seen["url"] and "commons" not in seen["url"]
+
+
+# ---- the bare subject first, then with its category ---------------------------------
+
+class Wikipedia:
+    """Stands in for the search: a top article per query, like the real one gives."""
+
+    def __init__(self, articles):
+        self.articles, self.searches = articles, []
+
+    def get(self, url, deadline):
+        if not url.startswith("https://en.wikipedia.org"):
+            return png_bytes()
+        query = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)["gsrsearch"][0]
+        self.searches.append(query)
+        found = self.articles.get(query)
+        if found is None:
+            return json.dumps({"query": {}}).encode()
+        title, props = found if isinstance(found, tuple) else (found, {})
+        page = {"title": title, "thumbnail": {"source": f"https://example.invalid/{title}.jpg"},
+                **({"pageprops": props} if props else {})}
+        return json.dumps({"query": {"pages": [page]}}).encode()
+
+
+@pytest.fixture
+def wikipedia(monkeypatch):
+    def make(articles):
+        w = Wikipedia(articles)
+        monkeypatch.setattr("chatbox.pictures._get", w.get)
+        return w
+    return make
+
+
+def test_a_subject_that_names_an_article_is_looked_up_once(wikipedia):
+    w = wikipedia({"Eiffel Tower": "Eiffel Tower",
+                   "Eiffel Tower landmark": "Eiffel Tower (Paris, Texas)"})
+    assert find_image("Eiffel Tower", "landmark", _Deadline(2))[1] == "Eiffel Tower"
+    assert w.searches == ["Eiffel Tower"]
+
+
+def test_the_moon_names_the_article_moon(wikipedia):
+    w = wikipedia({"the Moon": "Moon"})
+    assert find_image("the Moon", "space", _Deadline(2))[1] == "Moon"
+    assert w.searches == ["the Moon"]
+
+
+def test_a_guessed_article_is_searched_again_with_the_category(wikipedia):
+    w = wikipedia({"python": "Python (programming language)", "python animal": "Burmese python"})
+    assert find_image("python", "animal", _Deadline(2))[1] == "Burmese python"
+    assert w.searches == ["python", "python animal"]
+
+
+def test_a_disambiguation_page_is_searched_again_with_the_category(wikipedia):
+    w = wikipedia({"mercury": ("Mercury", {"disambiguation": ""}),
+                   "mercury space": "Mercury (planet)"})
+    assert find_image("mercury", "space", _Deadline(2))[1] == "Mercury (planet)"
+    assert w.searches == ["mercury", "mercury space"]
+
+
+def test_a_subject_that_already_says_its_category_is_searched_once(wikipedia):
+    w = wikipedia({"space shuttle": "Space Shuttle program"})
+    assert find_image("space shuttle", "space", _Deadline(2))[1] == "Space Shuttle program"
+    assert w.searches == ["space shuttle"]
+
+
+def test_the_finder_caches_by_subject_and_category(wikipedia, tmp_path):
+    w = wikipedia({"python": "Python (programming language)", "python animal": "Burmese python"})
+    f = PictureFinder(tmp_path / "pictures")
+    assert f.find("python", "animal").title == "Burmese python"
+    assert f.find("python", "animal").source == "cache"
+    assert w.searches == ["python", "python animal"]
 
 
 # ---- showing and clearing (requirements 3, 4, 5) -----------------------------------
@@ -281,8 +410,8 @@ def show_for(display=None, picture=None, finder=None):
         def __init__(self):
             self.asked = []
 
-        def find(self, subject):
-            self.asked.append(subject)
+        def find(self, subject, category=None):
+            self.asked.append(search_term(subject, category) or subject)
             return picture
 
     return PictureShow(display or FakeDisplay(), finder or Fixed())
@@ -325,7 +454,7 @@ def test_a_picture_that_is_not_ready_does_not_delay_the_answer():
     started = threading.Event()
 
     class Slow:
-        def find(self, subject):
+        def find(self, subject, category=None):
             started.set()
             time.sleep(0.5)
             return picture_of()
@@ -345,7 +474,7 @@ def test_a_late_picture_for_a_finished_turn_is_dropped():
     release = threading.Event()
 
     class Slow:
-        def find(self, subject):
+        def find(self, subject, category=None):
             release.wait(2.0)
             return picture_of()
 
@@ -368,9 +497,90 @@ def test_a_display_that_throws_never_escapes():
     assert show.last is None
 
 
+# ---- an animal battle: two pictures, taking turns -----------------------------------
+
+class ByName:
+    """A finder with a picture per subject, recording what it was asked."""
+
+    def __init__(self, *missing, delay=0.0):
+        self.missing, self.delay, self.asked = set(missing), delay, []
+
+    def find(self, subject, category=None):
+        self.asked.append(subject)
+        if self.delay:
+            time.sleep(self.delay)
+        return None if subject in self.missing else picture_of(subject)
+
+
+def shown_subjects(display, show):
+    return [show_subject(image, show) for image in display.shown]
+
+
+def show_subject(image, show):
+    return next(p.subject for p in show.shown if p.image is image)
+
+
+def test_a_battle_swaps_between_the_two_animals_while_speaking():
+    display = FakeDisplay()
+    show = PictureShow(display, ByName(), swap_seconds=0.05)
+    show.wanted("shark", "animal", "crocodile")
+    assert wait_for(lambda: show._pending.done())
+    show.show()
+    assert wait_for(lambda: len(display.shown) >= 4)
+    show.clear()
+    subjects = shown_subjects(display, show)
+    assert subjects[:4] == ["shark", "crocodile", "shark", "crocodile"]
+    assert [p.subject for p in show.shown] == ["shark", "crocodile"]   # for --verbose
+
+
+def test_swapping_stops_when_the_answer_ends():
+    display = FakeDisplay()
+    show = PictureShow(display, ByName(), swap_seconds=0.02)
+    show.wanted("shark", "animal", "crocodile")
+    assert wait_for(lambda: show._pending.done())
+    show.show()
+    assert wait_for(lambda: len(display.shown) >= 2)
+    show.clear()
+    drawn = len(display.shown)
+    time.sleep(0.1)
+    assert len(display.shown) == drawn and show.last is None
+
+
+def test_a_battle_with_one_picture_missing_just_shows_the_other():
+    display = FakeDisplay()
+    show = PictureShow(display, ByName("florb"), swap_seconds=0.02)
+    show.wanted("shark", "animal", "florb")
+    assert wait_for(lambda: show._pending.done())
+    show.show()
+    time.sleep(0.1)
+    show.clear()
+    assert len(display.shown) == 1 and show.previous.subject == "shark"
+
+
+def test_the_second_animal_arriving_late_joins_the_swap():
+    display = FakeDisplay()
+    show = PictureShow(display, ByName(delay=0.05), swap_seconds=0.02)
+    show.wanted("shark", "animal", "crocodile")
+    show.show()                         # nothing ready yet: never waits
+    assert display.shown == []
+    assert wait_for(lambda: [p.subject for p in show.shown] == ["shark", "crocodile"])
+    show.clear()
+
+
+def test_a_single_subject_is_never_swapped():
+    display = FakeDisplay()
+    show = PictureShow(display, ByName(), swap_seconds=0.02)
+    show.wanted("octopus", "animal")
+    assert wait_for(lambda: show._pending.done())
+    show.show()
+    time.sleep(0.1)
+    show.clear()
+    assert len(display.shown) == 1
+
+
 def test_a_finder_that_throws_never_escapes():
     class Broken:
-        def find(self, subject):
+        def find(self, subject, category=None):
             raise RuntimeError("boom")
 
     show = PictureShow(FakeDisplay(), Broken())
@@ -393,8 +603,25 @@ def test_the_watching_classifier_starts_the_lookup_and_classifies_unchanged(poli
     inner = Classifies("octopus")
     wrapped = WatchingClassifier(inner, show)
     result = wrapped.classify("what is an octopus?", [], policy)
-    assert result == Classification("allow", None, "test", "octopus")
-    assert wait_for(lambda: show.finder.asked == ["octopus"])
+    assert result == Classification("allow", None, "test", "octopus", "animal")
+    assert wait_for(lambda: show.finder.asked == ["octopus animal"])
+
+
+def test_the_watching_classifier_asks_for_both_animals_in_a_battle(policy):
+    class Battle(Classifies):
+        def classify(self, question, history, policy):
+            return Classification("allow", None, "test", "shark", "animal", "crocodile")
+
+    show = show_for(picture=picture_of())
+    WatchingClassifier(Battle(), show).classify("who would win?", [], policy)
+    assert wait_for(lambda: show.finder.asked == ["shark animal", "crocodile animal"])
+
+
+def test_a_subject_with_no_picture_category_shows_nothing(policy):
+    show = show_for(picture=picture_of())
+    WatchingClassifier(Classifies("birthday", category=None), show).classify("q", [], policy)
+    time.sleep(0.05)
+    assert show.finder.asked == []
 
 
 def test_a_redirected_question_shows_nothing(policy):
@@ -408,7 +635,7 @@ def test_a_redirected_question_shows_nothing(policy):
 
 def test_a_broken_screen_cannot_fail_a_classification(policy):
     class Exploding(PictureShow):
-        def wanted(self, subject):
+        def wanted(self, subject, category=None):
             raise RuntimeError("screen is on fire")
 
     show = Exploding(FakeDisplay(), None)
@@ -488,8 +715,8 @@ class FixedFinder:
         self.picture, self.error, self.delay = picture, error, delay
         self.asked = []
 
-    def find(self, subject):
-        self.asked.append(subject)
+    def find(self, subject, category=None):
+        self.asked.append(search_term(subject, category) or subject)
         if self.delay:
             time.sleep(self.delay)
         if self.error:
@@ -704,6 +931,7 @@ def test_a_local_file_turns_the_screen_on(tmp_path):
     assert (screen.dc_gpio, screen.reset_gpio, screen.cs) == (25, 27, 0)  # from chatbox.toml
     assert screen.rotation == 90   # landscape
     assert screen.cache_dir is None
+    assert screen.swap_seconds == 3
 
 
 # ---- the real Wikipedia API (pytest -m live) ---------------------------------------
@@ -759,7 +987,7 @@ def test_a_lookup_in_flight_is_reported_as_still_looking():
     release = threading.Event()
 
     class Slow:
-        def find(self, subject):
+        def find(self, subject, category=None):
             release.wait(2.0)
             return picture_of()
 

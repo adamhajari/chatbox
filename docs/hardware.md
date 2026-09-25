@@ -550,7 +550,7 @@ and speaker left out so a screen problem can't hide behind an audio one:
 ```sh
 .venv/bin/python scripts/screen_demo.py --loop
 .venv/bin/python scripts/screen_demo.py "how do octopuses change colour?"
-.venv/bin/python scripts/screen_demo.py --subject octopus     # skips the model call
+.venv/bin/python scripts/screen_demo.py --subject python --category animal   # skips the model call
 ```
 
 Then `chatbox chat -v` drives the screen from real questions typed at the keyboard,

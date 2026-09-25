@@ -64,6 +64,7 @@ class ScreenSettings:
     backlight_gpio: int | None = None
     backlight_active_high: bool = True
     timeout_seconds: float = 3.0  # hard ceiling on a lookup; speech never waits for it
+    swap_seconds: float = 3.0     # an animal battle's two pictures take turns this often
     cache_dir: Path | None = None  # None = "pictures" beside the database
 
 
@@ -112,6 +113,7 @@ def _screen(data: dict, base: Path) -> ScreenSettings | None:
         backlight_gpio=None if sc.get("backlight_gpio") is None else int(sc["backlight_gpio"]),
         backlight_active_high=bool(sc.get("backlight_active_high", True)),
         timeout_seconds=float(sc.get("timeout_seconds", 3.0)),
+        swap_seconds=max(0.5, float(sc.get("swap_seconds", 3.0))),
         cache_dir=base / cache if cache else None,
     )
 

@@ -119,3 +119,9 @@ canned_replies:
   blocked_topic: That's not something I can talk about. Want to ask me about animals or space instead?
   something_went_wrong: Oops, my thinking got tangled. Can you ask me again?
   didnt_catch_that: I didn't quite hear that. Can you hold the button and say it again?
+
+# The picture screen shows a picture only of these kinds of thing, and adds the kind to
+# the search, so "python" is looked up as "python animal". Empty list = no pictures.
+pictures:
+  categories: [animal, plant, food, place, space, vehicle, landmark, instrument,
+               science, geography, travel]

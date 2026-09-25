@@ -1,7 +1,9 @@
 """Finding a picture of what was asked about (PLAN.md D28, D29).
 
-The subject comes from the guardrail classifier, which already runs on every question,
-so no extra model call and no extra latency. Given a subject, this looks up the
+The subject and its picture category come from the guardrail classifier, which already
+runs on every question, so no extra model call and no extra latency. The category is one
+of the policy's `pictures.categories` and is added to the search ("python animal"), so
+only kinds of thing a parent listed get a picture. Given that, this looks up the
 Wikipedia article for it and takes that article's lead image (the MediaWiki API's
 `pageimage`), scaled for the 240x320 screen.
 
@@ -10,8 +12,9 @@ anyone has uploaded against a word, while an article's lead image is about the a
 
 Everything here is best-effort. No article, no image, a slow network or any error at
 all means no picture -- never an exception the caller has to handle, never a retry, and
-never anything the child hears. One HTTP round trip per subject, then a disk cache,
-including a negative entry so a subject with no picture is asked about once.
+never anything the child hears. One or two HTTP round trips per subject (see
+`find_image`), then a disk cache, including a negative entry so a subject with no
+picture is asked about once.
 
     !! UNCHECKED CONTENT (PLAN.md D29) !!
     No guardrail sees this image before a child does. The classifier checks the
@@ -56,6 +59,18 @@ SCREEN = (320, 240)
 # A subject is a noun phrase from the classifier, but it becomes a URL and a filename,
 # so it gets treated as untrusted text at both.
 _UNSAFE_NAME = re.compile(r"[^a-z0-9]+")
+
+
+def search_term(subject: str | None, category: str | None) -> str | None:
+    """What to look up: the subject with its picture category added ("python animal"),
+    so the search lands on the article the child means. None -- no picture -- unless
+    there are both. The category is left off when the subject already says it."""
+    subject = " ".join(str(subject or "").split())
+    if not subject or not category:
+        return None
+    if category.lower() in subject.lower():
+        return subject
+    return f"{subject} {category}"
 
 
 @dataclass(frozen=True)
@@ -103,19 +118,51 @@ def lead_image_url(subject: str, deadline: _Deadline, width: int = 320) -> tuple
     query = urllib.parse.urlencode({
         "action": "query", "format": "json", "formatversion": "2",
         "generator": "search", "gsrsearch": subject, "gsrlimit": "1", "gsrnamespace": "0",
-        "prop": "pageimages", "piprop": "thumbnail", "pithumbsize": str(width),
-        "redirects": "1",
+        "prop": "pageimages|pageprops", "piprop": "thumbnail", "pithumbsize": str(width),
+        "ppprop": "disambiguation", "redirects": "1",
     })
     data = json.loads(_get(f"{API}?{query}", deadline).decode("utf-8"))
     pages = data.get("query", {}).get("pages") or []
     if not pages:
         return None  # no article matched the subject
     page = pages[0]
+    if "disambiguation" in (page.get("pageprops") or {}):
+        return None  # a list of other articles; its picture (if any) is of one of them
     thumbnail = page.get("thumbnail") or {}
     url = thumbnail.get("source")
     if not url:
         return None  # an article, but no lead image (plenty have none)
     return url, str(page.get("title", ""))
+
+
+_ARTICLE = re.compile(r"^(the|a|an) ", re.IGNORECASE)
+
+
+def _names_it(subject: str, title: str) -> bool:
+    """The article is titled with the subject itself ("the Moon" and "Moon"), not a
+    longer or bracketed title that means the search guessed ("Python (programming
+    language)", "Eiffel Tower (Paris, Texas)")."""
+    def bare(text: str) -> str:
+        return _ARTICLE.sub("", " ".join(text.split())).casefold()
+    return bare(subject) == bare(title)
+
+
+def find_image(subject: str, category: str | None, deadline: _Deadline,
+               width: int = 320) -> tuple[str, str] | None:
+    """(image url, article title) for the subject as a child means it, or None.
+
+    The category settles what an ambiguous subject means ("python animal"), but it can
+    also pull the search off a subject that was never ambiguous: "Eiffel Tower landmark"
+    finds a replica in Texas. So the bare subject goes first, and is kept only when an
+    article is titled with the subject itself; anything else is a guess, and the search
+    is made again with the category. One request when the subject names an article,
+    two when it doesn't, both inside the one deadline.
+    """
+    found = lead_image_url(subject, deadline, width)
+    term = search_term(subject, category)
+    if term is None or term == subject or (found and _names_it(subject, found[1])):
+        return found
+    return lead_image_url(term, deadline, width)
 
 
 def fit(image, size: tuple[int, int] = SCREEN):
@@ -149,7 +196,7 @@ class PictureFinder:
         self.cache_dir = Path(cache_dir)
         self.timeout_seconds = timeout_seconds
         self.size = size
-        self._fetch = fetch or lead_image_url  # swapped for a fake in the tests
+        self._fetch = fetch or find_image  # swapped for a fake in the tests
 
     # -- cache ---------------------------------------------------------------
     # A missing picture is cached too (an empty ".none" file), so "what is a florb?"
@@ -197,11 +244,14 @@ class PictureFinder:
 
     # -- lookup --------------------------------------------------------------
 
-    def find(self, subject: str) -> Picture | None:
+    def find(self, subject: str, category: str | None = None) -> Picture | None:
         subject = " ".join(str(subject or "").split())
         if not subject:
             return None
-        cached = self._cached(subject)
+        # Cached by subject and category together: "python" the animal and "python"
+        # asked about with no category are different pictures.
+        key = search_term(subject, category) or subject
+        cached = self._cached(key)
         if cached == "none":
             return None
         if isinstance(cached, Picture):
@@ -209,9 +259,9 @@ class PictureFinder:
 
         deadline = _Deadline(self.timeout_seconds)
         try:
-            found = self._fetch(subject, deadline, max(self.size))
+            found = self._fetch(subject, category, deadline, max(self.size))
             if found is None:
-                self._store(subject, None)
+                self._store(key, None)
                 return None
             url, title = found
             from PIL import Image
@@ -220,7 +270,7 @@ class PictureFinder:
         except Exception as e:  # noqa: BLE001 - no picture is always an acceptable answer
             # Not cached as a miss: a timeout or a dropped network says nothing about
             # whether this subject has a picture, and caching it would hide one forever.
-            _log.debug("no picture for %r: %s", subject, e)
+            _log.debug("no picture for %r: %s", key, e)
             return None
-        self._store(subject, image)
-        return Picture(image, subject, title, "wikipedia")
+        self._store(key, image)
+        return Picture(image, key, title, "wikipedia")

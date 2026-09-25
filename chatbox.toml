@@ -145,8 +145,10 @@ release_gap_seconds = 0.2
 
 # The picture screen: a 2.2" SPI display (ILI9341, 240x320) showing a picture of what
 # was asked about while Chatbox speaks (PLAN.md D28/D29, docs/hardware.md). Pictures
-# only, never text. The subject comes from the guardrail classifier, and the picture is
-# the Wikipedia article's lead image for it.
+# only, never text. The subject and its category come from the guardrail classifier,
+# and the picture is the lead image of the Wikipedia article for both ("python animal").
+# Which categories get a picture is set in the policy (`pictures.categories`), from the
+# settings page.
 #
 # Only the Pi has a screen, so turn it on in chatbox.local.toml, not here. The values
 # below are the defaults and are documented rather than set:
@@ -177,6 +179,9 @@ backlight_active_high = true
 # Hard ceiling on looking a picture up. Speech NEVER waits for this (PLAN.md D4): a
 # picture that isn't ready when the answer starts appears late or not at all.
 timeout_seconds = 3
+# An animal battle ("who would win, a shark or a crocodile?") gets a picture of each
+# animal, and the screen swaps between them this often while the answer is spoken.
+swap_seconds = 3
 # Where fetched pictures are cached, relative to this file. Unset = "pictures" beside
 # the database. Cached subjects are never fetched again.
 # cache_dir = "data/pictures"

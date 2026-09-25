@@ -41,6 +41,7 @@ def form_for(store) -> dict[str, list[str]]:
         "ai_disclosure.disclosure_reply": [d["ai_disclosure"]["disclosure_reply"]],
         "schedule.timezone": [d["schedule"]["timezone"]],
         "limits.daily_questions": [str(d["limits"]["daily_questions"])],
+        "pictures.categories": [", ".join(d["pictures"]["categories"])],
     }
     for k in ("say_when_unsure", "ask_follow_up_question"):
         if d["answers"][k]:
@@ -139,6 +140,27 @@ def test_error_appears_next_to_its_field(client, store):
     html = post(client, form, "save").text
     field = html.index(f'name="topic.{n}.reply"')
     assert html.index("This can&#x27;t be empty.", field) - field < 200
+
+
+def test_picture_categories_save_tidied(client, store):
+    form = form_for(store)
+    form["pictures.categories"] = ["Animal, sea  creature, animal, , dinosaur"]
+    assert post(client, form, "save").status_code == 303
+    assert store.policy.pictures.categories == ["animal", "sea creature", "dinosaur"]
+
+
+def test_picture_categories_can_be_emptied(client, store):
+    form = form_for(store)
+    form["pictures.categories"] = [""]
+    assert post(client, form, "save").status_code == 303
+    assert store.policy.pictures.categories == []
+
+
+def test_a_bad_picture_category_is_shown_next_to_the_field(client, store):
+    form = form_for(store)
+    form["pictures.categories"] = ["animal, rock&roll, none"]
+    html = post(client, form, "save").text
+    assert "Not saved" in html and "rock&amp;roll, none" in html.split('id="pictures.categories"')[1]
 
 
 def test_disclosure_cannot_be_switched_off(client, store):
