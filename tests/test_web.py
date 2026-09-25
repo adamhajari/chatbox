@@ -37,6 +37,7 @@ def form_for(store) -> dict[str, list[str]]:
         "persona.tone": [", ".join(d["persona"]["tone"])],
         "answers.max_sentences": [str(d["answers"]["max_sentences"])],
         "answers.max_words": [str(d["answers"]["max_words"])],
+        "answers.remember_exchanges": [str(d["answers"]["remember_exchanges"])],
         "ai_disclosure.disclosure_reply": [d["ai_disclosure"]["disclosure_reply"]],
         "schedule.timezone": [d["schedule"]["timezone"]],
         "limits.daily_questions": [str(d["limits"]["daily_questions"])],

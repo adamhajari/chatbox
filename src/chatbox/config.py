@@ -20,7 +20,6 @@ class Settings:
     provider_name: str
     provider_settings: dict
     logging_enabled: bool
-    max_history_exchanges: int
     guardrails: GuardrailSettings
     speech: SpeechSettings | None = None  # None when chatbox.toml has no [speech]
     screen: ScreenSettings | None = None  # None = no screen; nothing else to check
@@ -199,7 +198,6 @@ def load_settings(path: str | Path = "chatbox.toml", provider: str | None = None
         provider_name=name,
         provider_settings=dict(provider_section.get(name, {})),
         logging_enabled=bool(data.get("logging", {}).get("enabled", False)),
-        max_history_exchanges=int(data.get("chat", {}).get("max_history_exchanges", 20)),
         guardrails=GuardrailSettings(
             history_exchanges=int(g.get("history_exchanges", 6)),
             length_tolerance=float(g.get("length_tolerance", 0.25)),

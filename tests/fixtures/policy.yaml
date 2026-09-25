@@ -13,6 +13,7 @@ answers:
   max_words: 70
   say_when_unsure: true
   ask_follow_up_question: false
+  remember_exchanges: 20
 
 ai_disclosure:
   always_honest_about_being_a_computer: true

@@ -132,6 +132,12 @@ class _Page:
 {self.text("answers.max_words", "Most words", a["max_words"], "10 to 200.",
            kind="number", extra=' inputmode="numeric" min="10" max="200"')}
 </div>
+{self.text("answers.remember_exchanges", "Earlier questions it remembers",
+           a["remember_exchanges"],
+           "How many of the kid's earlier questions and answers it sees when answering a new "
+           "one, so a follow-up like \"why?\" makes sense. Forgotten when Chatbox restarts. "
+           "0 to 50; 0 means every question stands alone.",
+           kind="number", extra=' inputmode="numeric" min="0" max="50"')}
 {self.checkbox("answers.say_when_unsure", "Say \"I'm not sure\" instead of guessing", a["say_when_unsure"])}
 {self.checkbox("answers.ask_follow_up_question", "May end with a question back to the kid",
                a["ask_follow_up_question"])}

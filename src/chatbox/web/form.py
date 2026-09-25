@@ -81,6 +81,7 @@ def parse_form(form: Form, drop_topic: int | None = None,
             "max_words": one("answers.max_words"),
             "say_when_unsure": checked("answers.say_when_unsure"),
             "ask_follow_up_question": checked("answers.ask_follow_up_question"),
+            "remember_exchanges": one("answers.remember_exchanges"),
         },
         # Always on; the form shows it but can't change it.
         "ai_disclosure": {

@@ -21,6 +21,8 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 Weekday = Literal["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
 WEEKDAYS: list[str] = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
 
+MAX_REMEMBER_EXCHANGES = 50
+
 _ID_RE = re.compile(r"^[a-z0-9_]+$")
 _HHMM_RE = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
 
@@ -39,6 +41,9 @@ class AnswerStyle(_Strict):
     max_words: int = Field(ge=10, le=200)
     say_when_unsure: bool = True
     ask_follow_up_question: bool = False
+    # Earlier question/answer pairs from this session sent along with a new question,
+    # so a follow-up like "why?" makes sense. 0 = each question stands alone.
+    remember_exchanges: int = Field(default=20, ge=0, le=MAX_REMEMBER_EXCHANGES)
 
 
 class AIDisclosure(_Strict):

@@ -16,11 +16,6 @@ database = "data/chatbox.db"
 host = "auto"
 port = 8321
 
-[chat]
-# Follow-ups within one chat session keep context; this caps how many past
-# question/answer pairs are sent along (older ones are dropped).
-max_history_exchanges = 20
-
 [logging]
 # On: every question and answer is saved in data/chatbox.db, for the settings page's
 # "Today's questions and answers" and `chatbox log`. Off: only a per-day question count

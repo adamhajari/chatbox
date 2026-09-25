@@ -140,13 +140,22 @@ def test_follow_ups_see_session_history(policy, make):
 
 def test_history_capped_and_denials_excluded(policy_data, make):
     policy_data["limits"]["daily_questions"] = 4
+    policy_data["answers"]["remember_exchanges"] = 2
     policy = Policy.model_validate(policy_data)
-    p, provider = make(policy, max_history_exchanges=2)
+    p, provider = make(policy)
     for q in ["a", "b", "c", "d", "e"]:
         p.ask(q)  # "e" is over the cap
-    assert [m.text for m in p.history if m.role == "user"] == ["c", "d"]
     answer = FakeProvider().text
     assert [m.text for m in provider.calls[-1][1]] == ["b", answer, "c", answer, "d"]
+
+
+def test_remember_zero_sends_question_alone_but_keeps_history(policy_data, make):
+    policy_data["answers"]["remember_exchanges"] = 0
+    p, provider = make(Policy.model_validate(policy_data))
+    p.ask("Why is the sky blue?")
+    p.ask("Why?")
+    assert [m.text for m in provider.calls[-1][1]] == ["Why?"]
+    assert [m.text for m in p.history if m.role == "user"] == ["Why is the sky blue?", "Why?"]
 
 
 def test_canned_replies_join_history(policy, make):

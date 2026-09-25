@@ -37,7 +37,7 @@ from chatbox.guardrails import (
 )
 from chatbox.limits import check_limits, local_now
 from chatbox.log import Controls, DailyCounter, ExchangeLog, ExchangeRecord
-from chatbox.policy import Policy
+from chatbox.policy import MAX_REMEMBER_EXCHANGES, Policy
 from chatbox.policy_store import PolicySnapshot, PolicyStore
 from chatbox.providers.base import ChatMessage, ModelProvider, ModelReply
 
@@ -118,7 +118,6 @@ class Pipeline:
         provider: ModelProvider,
         counter: DailyCounter,
         log: ExchangeLog | None = None,
-        max_history_exchanges: int = 20,
         *,
         classifier: InputClassifier,
         output_checker: OutputChecker | None,  # None = layer 4 turned off in settings
@@ -135,7 +134,6 @@ class Pipeline:
         self.classifier = classifier
         self.output_checker = output_checker
         self.log = log
-        self.max_history_exchanges = max_history_exchanges
         self.classify_timeout_s = classify_timeout_s
         self.check_timeout_s = check_timeout_s
         self.generate_timeout_s = generate_timeout_s
@@ -197,7 +195,8 @@ class Pipeline:
     def _remember(self, question: str, answer: str) -> None:
         # Canned replies are kept too, so a follow-up "why?" sees what was said.
         self.history += [ChatMessage("user", question), ChatMessage("assistant", answer)]
-        del self.history[: max(0, len(self.history) - 2 * self.max_history_exchanges)]
+        # Keep the most any policy allows, so raising the setting mid-session takes effect.
+        del self.history[: max(0, len(self.history) - 2 * MAX_REMEMBER_EXCHANGES)]
 
     def _run(
         self, snap: PolicySnapshot, question: str, now: datetime, local_date: str,
@@ -220,8 +219,11 @@ class Pipeline:
         step("limits", "allow", f"{used + 1}/{policy.limits.daily_questions} today", 0)
 
         # Layer 3 and layers 1-2 run concurrently; the answer is only used on "allow".
+        # The classifier sees everything kept and trims to its own setting, so it judges
+        # follow-ups in context even when the answering model is told to forget.
         history = list(self.history)
-        messages = [*history, ChatMessage("user", question)]
+        keep = 2 * policy.answers.remember_exchanges
+        messages = [*(history[-keep:] if keep else []), ChatMessage("user", question)]
         started = time.monotonic()
         classify_f = _POOL.submit(_timed, self.classifier.classify, question, history, policy)
         generate_f = _POOL.submit(_timed, self.provider.generate, snap.system_prompt, messages)
@@ -286,7 +288,6 @@ def build_pipeline(
         make_provider(name, settings.provider_settings),
         counter,
         log,
-        settings.max_history_exchanges,
         classifier=ModelClassifier(make_provider(name, g.classifier.provider_settings),
                                    g.history_exchanges),
         output_checker=ModelOutputChecker(make_provider(name, g.output_check.provider_settings),

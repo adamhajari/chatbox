@@ -120,7 +120,7 @@ on a Pi, see [docs/development.md](docs/development.md).
 ## Sessions, logging, and models
 
 - **Sessions:** within one `chatbox chat` run, follow-up questions ("why?") see the earlier
-  exchanges, up to `[chat] max_history_exchanges`. Nothing is remembered between runs.
+  exchanges, up to the policy's `answers.remember_exchanges` ("Earlier questions it remembers" on the settings page). Nothing is remembered between runs.
 - **Logging** is on by default (`[logging] enabled = true`). Every exchange is saved in
   `data/chatbox.db` on the machine running Chatbox: the time, the question (as typed, or as
   transcribed from speech), the answer, and each pipeline step's decision. That's what the settings
@@ -219,7 +219,7 @@ What you can set:
 
 - `household_age`: the age every answer is written for.
 - `persona`: `name` and a list of `tone` words.
-- `answers`: `max_sentences`, `max_words`, `say_when_unsure`, `ask_follow_up_question`.
+- `answers`: `max_sentences`, `max_words`, `say_when_unsure`, `ask_follow_up_question`, `remember_exchanges`.
 - `ai_disclosure.disclosure_reply`: how it explains that it's a computer. Honesty about being
   a computer is always on and can't be turned off.
 - `topics.allowed` / `topics.blocked` / `topics.redirect_to_parent`: each topic has an `id`
