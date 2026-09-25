@@ -42,6 +42,30 @@ def test_answer_is_logged(policy, log, make):
                      ("generate", "ok"), ("output_check", "pass")]
 
 
+class Picks:
+    """Allows, reporting a fixed picture subject, category and opponent."""
+
+    def __init__(self, subject, category=None, opponent=None):
+        self.c = Classification("allow", None, "fine", subject, category, opponent)
+
+    def classify(self, question, history, policy):
+        return self.c
+
+
+@pytest.mark.parametrize("classifier, note", [
+    (Picks("python", "animal"), "fine [picture: python, animal]"),
+    (Picks("shark", "animal", "crocodile"), "fine [picture: shark vs crocodile, animal]"),
+    (Picks("birthday"), "fine [picture: birthday, no category]"),
+    (Picks(None), "fine"),
+])
+def test_the_picture_subject_and_category_are_logged(policy, log, make, classifier, note):
+    p, _ = make(policy, classifier=classifier)
+    a = p.ask("a question")
+    assert next(s for s in a.steps if s["step"] == "classify")["detail"] == note
+    [r] = rows(log)
+    assert next(s for s in json.loads(r["steps_json"]) if s["step"] == "classify")["detail"] == note
+
+
 def test_outside_schedule_gets_canned_reply_and_no_model_call(policy, log, make):
     p, provider = make(policy, when=at(2026, 9, 16, 21))
     a = p.ask("Are you awake?")

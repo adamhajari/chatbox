@@ -77,6 +77,15 @@ def _wait(future: Future, deadline_s: float | None, started: float) -> _Outcome:
         return _Outcome(None, TimeoutError(f"timed out after {deadline_s:g}s"), ms)
 
 
+def _picture_note(cls: Classification) -> str:
+    """What the classifier picked for the screen, so a log shows why a picture was (or
+    wasn't) the one it was: " [picture: shark vs crocodile, animal]"."""
+    if not cls.subject:
+        return ""
+    subject = f"{cls.subject} vs {cls.opponent}" if cls.opponent else cls.subject
+    return f" [picture: {subject}, {cls.picture_category or 'no category'}]"
+
+
 def _err(e: BaseException) -> str:
     return f"{type(e).__name__}: {e}"
 
@@ -234,7 +243,8 @@ class Pipeline:
             step("generate", "discarded", "classifier failed", None)
             return went_wrong, "canned", None
         cls: Classification = c.value
-        step("classify", cls.decision, f"{cls.topic_id}: {cls.detail}" if cls.topic_id else cls.detail, c.ms)
+        detail = f"{cls.topic_id}: {cls.detail}" if cls.topic_id else cls.detail
+        step("classify", cls.decision, detail + _picture_note(cls), c.ms)
 
         # Layer 5: canned replies for sensitive categories.
         canned = canned_reply_for(cls, policy)
