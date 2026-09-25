@@ -28,3 +28,10 @@ def test_prompt_follows_policy_changes(policy_data):
     assert "9-year-old" in s and "You are Zed" in s
     assert "one short question" in s
     assert "I'm not sure" not in s
+
+
+def test_prompt_forbids_follow_up_questions_by_default(policy):
+    assert not policy.answers.ask_follow_up_question
+    s = compile_system_prompt(policy)
+    assert "Never ask the child a follow-up question" in s
+    assert "one short question" not in s

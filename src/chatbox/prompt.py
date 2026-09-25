@@ -31,7 +31,10 @@ def compile_system_prompt(policy: Policy) -> str:
     if a.ask_follow_up_question:
         style.append("You may end with one short question that invites the child to wonder more.")
     else:
-        style.append("Do not ask the child questions back; just answer.")
+        style.append(
+            "Never ask the child a follow-up question. Do not end with a question, and do not "
+            'offer more, such as "Want to know more?" or "What do you think?" Just answer and stop.'
+        )
 
     allowed = [_topic_line(t.label, t.description) for t in p.topics.allowed]
     blocked = [_topic_line(t.label, t.description) for t in p.topics.blocked]
