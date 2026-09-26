@@ -18,12 +18,13 @@ import time
 from datetime import datetime, timezone
 from typing import Callable
 from zoneinfo import ZoneInfo
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, quote, urlsplit
 
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse, Response
 from pydantic import ValidationError
 
+from chatbox.games import games_by_mode
 from chatbox.limits import local_now
 from chatbox.log import Controls, DailyCounter, ExchangeLog
 from chatbox.pipeline import PAUSED_REPLY
@@ -74,7 +75,13 @@ def create_app(
         if counter is None or controls is None:
             return None
         p = store.policy
+        games = {}
+        for g in games_by_mode().values():
+            settings = getattr(p.games, g.id)
+            games[g.id] = {"played": counter.games(today(), g.id),
+                           "limit": settings.daily_games if settings.enabled else None}
         return {"used": counter.get(today()), "limit": p.limits.daily_questions,
+                "games": games,
                 "timezone": p.schedule.timezone, "paused": controls.paused,
                 "volume": controls.volume, "paused_reply": PAUSED_REPLY}
 
@@ -89,7 +96,7 @@ def create_app(
                 for r in log.for_date(today())]
 
     def page(data: dict, *, errors=None, message="", message_ok=True, preview: str | None = None,
-             base_version: int | None = None, status: int = 200) -> HTMLResponse:
+             base_version: int | None = None, status: int = 200, tab: str = "") -> HTMLResponse:
         current = store.snapshot()
         html = render(
             data,
@@ -105,21 +112,22 @@ def create_app(
             message_ok=message_ok,
             prompt=preview if preview is not None else current.system_prompt,
             prompt_is_preview=preview is not None,
+            tab=tab,
         )
         return HTMLResponse(html, status_code=status)
 
     @app.get("/", response_class=HTMLResponse)
-    def show(saved: int | None = None, done: str | None = None) -> HTMLResponse:
+    def show(saved: int | None = None, done: str | None = None, tab: str = "") -> HTMLResponse:
         message = (f"Saved as version {saved}. Chatbox uses it from the next question."
                    if saved else CONTROL_MESSAGES.get(done or "", ""))
-        return page(F.policy_to_data(store.policy), message=message)
+        return page(F.policy_to_data(store.policy), message=message, tab=tab)
 
     @app.get("/status.json")
     def status_json() -> Response:
         now = right_now()
         if now is None:
             return PlainTextResponse("No status.", status_code=404)
-        return JSONResponse({k: now[k] for k in ("used", "limit", "paused", "volume")})
+        return JSONResponse({k: now[k] for k in ("used", "limit", "games", "paused", "volume")})
 
     @app.post("/controls")
     async def control(request: Request) -> Response:
@@ -129,6 +137,8 @@ def create_app(
             return PlainTextResponse("Unknown action.", status_code=400)
         if action == "reset_count":
             counter.reset(today())
+        elif action == "reset_games":
+            counter.reset_games(today())
         elif action == "set_volume":
             try:
                 controls.set_volume(int(form.get("volume", ["100"])[0]))
@@ -142,6 +152,7 @@ def create_app(
     async def submit(request: Request) -> Response:
         form = parse_qs((await request.body()).decode("utf-8"), keep_blank_values=True)
         action = form.get("action", ["preview"])[0]
+        tab = form.get("tab", [""])[0]
         try:
             base_version = int(form.get("base_version", [""])[0])
         except ValueError:
@@ -169,18 +180,19 @@ def create_app(
                 saved = store.save(data, base_version)
             except ValidationError as e:
                 return page(data, errors=F.errors_by_field(e), base_version=base_version,
-                            status=422)
+                            status=422, tab=tab)
             except StaleEditError as e:
                 return page(data, message=(
                     f"Not saved: someone else saved version {e.current_version} while you "
                     f"were editing. Your changes are still below. Save again to replace their "
                     f"version with yours, or reload the page to start from theirs."),
-                    message_ok=False, status=409)
+                    message_ok=False, status=409, tab=tab)
             except OSError as e:
                 return page(data, message=f"Not saved: couldn't write the policy file ({e}). "
                             "Chatbox is still using the previous version.",
-                            message_ok=False, base_version=base_version, status=500)
-            return RedirectResponse(f"/?saved={saved.policy_version}", status_code=303)
+                            message_ok=False, base_version=base_version, status=500, tab=tab)
+            return RedirectResponse(f"/?saved={saved.policy_version}&tab={quote(tab)}",
+                                    status_code=303)
 
         unsaved = "Not saved yet. Press Save to apply."
         if action == "preview":
@@ -189,10 +201,10 @@ def create_app(
                     {**data, "policy_version": store.policy.policy_version + 1})
             except ValidationError as e:
                 return page(data, errors=F.errors_by_field(e), base_version=base_version,
-                            message="Fix these to see the preview.", message_ok=False)
+                            message="Fix these to see the preview.", message_ok=False, tab=tab)
             return page(data, preview=compile_system_prompt(preview_policy),
-                        base_version=base_version, message=unsaved)
-        return page(data, base_version=base_version, message=unsaved)
+                        base_version=base_version, message=unsaved, tab=tab)
+        return page(data, base_version=base_version, message=unsaved, tab=tab)
 
     return app
 
@@ -201,6 +213,7 @@ CONTROL_MESSAGES = {
     "pause": "Paused. Every question now gets the resting reply until you press Resume.",
     "resume": "Resumed. Chatbox answers from the next question.",
     "reset_count": "Today's question count is back to 0.",
+    "reset_games": "Today's game count is back to 0.",
     "set_volume": "Volume saved. It applies to the next thing Chatbox says.",
 }
 

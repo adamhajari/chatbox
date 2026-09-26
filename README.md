@@ -163,6 +163,46 @@ through (Chatbox says what the animal was).
   output check. A refused question gets the usual reply and the game carries on.
 - **Memory:** during a game, the answering model sees only the game so far, up to
   `answers.remember_exchanges`. A game lasts only as long as the session.
+- **Limits** (the settings page's **Games** tab, or `games.animal_guessing` in the policy):
+  - `enabled` turns the game on or off. Off, a request to play gets `unavailable_reply`,
+    and a game in progress ends at the next question.
+  - `daily_games` caps the games *finished* per day: the animal was guessed, or the kid
+    gave up and heard it. A game stopped partway through doesn't count. Once today's are
+    used up, a request to play gets `unavailable_reply`.
+  - Nothing in a game counts toward `limits.daily_questions`: asking to play, the game's
+    questions, or stopping. The games have their own budget, so a game in progress
+    carries on after the day's questions are used up, and a request to play can still
+    start one. To tell that request apart, the classifier still runs on questions over
+    the limit (a small cost), and anything else gets the daily-limit reply without an
+    answer being asked for. With no games left, it's turned away with no model call, as
+    before. The schedule and the pause apply to games as usual.
+
+## The reading game
+
+"Let's play the reading game" puts a word on the screen, and the kid reads it out loud.
+Chatbox cheers a right answer, gives a small hint after a wrong one (its first sound, or
+how many letters it has, never the word), and tells the word after three wrong tries or
+when the kid says "I don't know" or "skip". A game is five words. After the last one it's
+back to answering questions, unless someone says "play again". "I'm done playing" stops
+partway through.
+
+- **Reading level:** kindergarten to 5th grade, set on the settings page's **Games** tab
+  (`games.reading.grade`: `K`, `1` … `5`). The words come from fixed lists in
+  `reading_game.py`: mostly Dolch sight words for K–3, and common harder words
+  ("adventure", "temperature") for 4th and 5th grade. Each game picks five at random,
+  avoiding the last game's words.
+- **Checking a word:** speech recognition often mishears a single word, and words like
+  "the" and "it" turn up in any reply, so the answer can't be checked by looking for the
+  word in it. Each try is one model call with structured output: the model reports
+  whether it was the word (a homophone like "two" for "to" counts), a wrong try, giving up,
+  or chat, plus a short reply. When to tell the kid the word is decided in code, in fixed
+  words ("That word is jump. Good try!"), so it's never told too soon.
+- **Limits** work like the animal guessing game's: on or off, games per day (a game counts
+  once all five words are done), and a reply for when it can't play. Nothing said during
+  the game counts toward the day's questions.
+- **The screen** shows the word in large black letters on white for the whole game,
+  including while the kid presses the button and reads. Without a screen (on a laptop),
+  the word is printed in the terminal instead, so the game can be tried there.
 
 ## Parent settings page
 
@@ -176,16 +216,24 @@ It prints the address to open, for example:
 Parent settings: open http://192.168.1.20:8321/ on a phone or computer on this network.
 ```
 
-Open that on any phone or computer on the home Wi-Fi. The page covers the whole policy:
-name and tone, answer style, household age, the three topic lists (add, edit, remove, or
-move a topic between lists by changing its "List"), each ask-a-parent topic's reply, the
-schedule and timezone, the daily limit, and every fixed reply. Honesty about being a
-computer is shown but can't be switched off.
+Open that on any phone or computer on the home Wi-Fi. The page covers the whole policy,
+in two tabs. **Questions** has name and tone, answer style, household age, the three topic
+lists (add, edit, remove, or move a topic between lists by changing its "List"), each
+ask-a-parent topic's reply, the schedule and timezone, the daily limit, and every fixed
+reply. Honesty about being a computer is shown but can't be switched off. **Games** has the
+[animal guessing game](#the-animal-guessing-game) and the [reading game](#the-reading-game):
+for each, on or off, games per day, and what it says when it can't play, plus the reading
+game's reading level (kindergarten to 5th grade). The tabs work without JavaScript and
+are one form, so Save on either tab saves both, and the page comes back on the same tab. If
+a save fails because of something on the other tab, that tab opens and is marked with a red
+dot.
 
 - **Right now** (top of the page) shows how many questions have been asked today against
   the daily limit, with two buttons:
   - **Reset today's count** starts today's count over at 0, so a kid who hit the limit
     can keep asking.
+  - **Reset today's games** does the same for finished games. Each game's count is shown
+    below the question count (or "Off" when that game is turned off).
   - **Pause Chatbox** makes every question get "I'm currently resting. Let's talk later."
     until you press **Resume**. It takes effect from the next question, beats the schedule
     and limit, and paused questions don't count. The pause is stored in `data/chatbox.db`,
@@ -375,7 +423,9 @@ question to first audio, which should stay under 5,000 ms).
 
 A 2.2" SPI display showing a picture of what was asked about while Chatbox answers.
 **Pictures only, never text** — young children may not read yet, so the
-screen supplements the spoken answer and is never needed to understand it.
+screen supplements the spoken answer and is never needed to understand it. The exception
+is [the reading game](#the-reading-game): its word stays on the screen for the whole game,
+between turns too, and no pictures are looked up meanwhile.
 
 ```
 classifier (already running) ─▶ subject + category ─▶ Wikipedia article's lead image ─▶ cache

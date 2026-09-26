@@ -95,6 +95,19 @@ def parse_form(form: Form, drop_topic: int | None = None,
         "pictures": {
             "categories": [c.strip() for c in one("pictures.categories").split(",") if c.strip()],
         },
+        "games": {
+            "animal_guessing": {
+                "enabled": checked("games.animal_guessing.enabled"),
+                "daily_games": one("games.animal_guessing.daily_games"),
+                "unavailable_reply": one("games.animal_guessing.unavailable_reply"),
+            },
+            "reading": {
+                "enabled": checked("games.reading.enabled"),
+                "daily_games": one("games.reading.daily_games"),
+                "grade": one("games.reading.grade"),
+                "unavailable_reply": one("games.reading.unavailable_reply"),
+            },
+        },
     }
 
 

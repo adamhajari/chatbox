@@ -167,6 +167,44 @@ class Pictures(_Strict):
         return v
 
 
+class AnimalGuessing(_Strict):
+    enabled: bool = True
+    # Finished games per day: the animal was guessed, or the kid gave up and heard it. A
+    # game stopped partway through doesn't count, and no game question counts toward
+    # limits.daily_questions.
+    daily_games: int = Field(default=5, ge=0, le=100)
+    # Said when a kid asks to play while the game is off or today's games are used up.
+    unavailable_reply: str = Field(
+        default="We can't play the animal guessing game right now. "
+                "You can still ask me questions!", min_length=1)
+
+
+Grade = Literal["K", "1", "2", "3", "4", "5"]
+
+
+class Reading(_Strict):
+    enabled: bool = True
+    # Finished games per day. A game is five words; it's finished once the last one has
+    # been read or told. As with every game, none of it counts toward daily_questions.
+    daily_games: int = Field(default=5, ge=0, le=100)
+    # Reading level of the words shown: kindergarten ("K") to 5th grade ("5").
+    grade: Grade = "K"
+    unavailable_reply: str = Field(
+        default="We can't play the reading game right now. You can still ask me questions!",
+        min_length=1)
+
+    @field_validator("grade", mode="before")
+    @classmethod
+    def _grade(cls, v: object) -> object:
+        # YAML reads `grade: 2` as a number and `grade: k` in lower case.
+        return str(v).upper() if isinstance(v, (int, str)) else v
+
+
+class Games(_Strict):
+    animal_guessing: AnimalGuessing = Field(default_factory=AnimalGuessing)
+    reading: Reading = Field(default_factory=Reading)
+
+
 class Policy(_Strict):
     schema_version: Literal[2] = 2
     policy_version: int = Field(ge=1, description="Bump on every edit; logged with each exchange.")
@@ -179,6 +217,7 @@ class Policy(_Strict):
     limits: Limits
     canned_replies: CannedReplies
     pictures: Pictures = Field(default_factory=Pictures)
+    games: Games = Field(default_factory=Games)
 
     def fingerprint(self) -> str:
         """Short content hash, so a log row identifies the exact policy even if

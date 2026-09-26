@@ -1,10 +1,9 @@
 """The animal guessing game: Chatbox thinks of an animal, and the children ask yes-or-no
 questions ("does it fly?") until they guess it.
 
-Chatbox starts in question-answering mode. The guardrail classifier, which already runs
-on every question, notices "I want to play the animal guessing game" and "I'm done
-playing" (`Classification.mode_change`), and the pipeline switches mode. Starting and
-stopping get fixed replies with no model call, so the switch is instant.
+It's a `chatbox.games.Game`: the classifier notices "I want to play the animal guessing
+game" and "I'm done playing", and the pipeline switches mode. Starting and stopping get
+fixed replies with no model call, so the switch is instant.
 
 A round ends when an answer names the secret animal (`names_animal`): the prompt forbids
 that until the child guesses it or gives up. Chatbox then goes back to answering
@@ -20,10 +19,12 @@ from __future__ import annotations
 import random
 import re
 from dataclasses import dataclass, field
+from typing import ClassVar
 
+from chatbox.games import Game, GameReply, Outcome
 from chatbox.policy import Policy
 from chatbox.prompt import SAFETY_SECTION, honesty_section, persona_line
-from chatbox.providers.base import ChatMessage
+from chatbox.providers.base import ChatMessage, ModelProvider
 
 # Animals a young child knows, each with plain, well-known traits so that yes-or-no
 # answers about them are clear.
@@ -35,6 +36,9 @@ ANIMALS = [
     "octopus", "jellyfish", "crab", "turtle", "frog", "snake", "crocodile", "butterfly",
     "bee", "ant", "spider", "snail",
 ]
+
+# Its key in the policy's `games` section and in the daily game counts.
+GAME_ID = "animal_guessing"
 
 START_REPLY = ("Okay, let's play! I'm thinking of an animal. Ask me yes or no questions, "
                "like does it fly, and try to guess what it is.")
@@ -59,13 +63,37 @@ def with_article(noun: str) -> str:
 class AnimalGame:
     """One round: the secret animal and the exchanges since it was picked."""
 
+    id: ClassVar[str] = GAME_ID
     animal: str
     history: list[ChatMessage] = field(default_factory=list)
 
     @classmethod
-    def start(cls, rng: random.Random, previous: str | None = None) -> AnimalGame:
+    def start(cls, rng: random.Random, policy: Policy | None = None,
+              previous: Game | None = None) -> AnimalGame:
         """A new round, never with the animal of the round before."""
-        return cls(rng.choice([a for a in ANIMALS if a != previous]))
+        last = previous.animal if isinstance(previous, AnimalGame) else None
+        return cls(rng.choice([a for a in ANIMALS if a != last]))
+
+    start_reply: ClassVar[str] = START_REPLY
+    screen_word: ClassVar[None] = None
+
+    def stop_reply(self) -> str:
+        return stop_reply(self.animal)
+
+    def system_prompt(self, policy: Policy) -> str:
+        return game_system_prompt(policy, self.animal)
+
+    def answer(self, provider: ModelProvider, system: str,
+               messages: list[ChatMessage]) -> GameReply:
+        reply = provider.generate(system, messages)
+        # The prompt forbids naming the animal until it's guessed or the child gives up.
+        return GameReply(reply, "done" if names_animal(reply.text, self.animal) else "continue")
+
+    def advance(self, outcome: Outcome) -> tuple[str, bool]:
+        return "", outcome == "done"  # one round per game
+
+    def progress(self) -> str:
+        return f"secret animal: {self.animal}"
 
 
 def game_system_prompt(policy: Policy, animal: str) -> str:

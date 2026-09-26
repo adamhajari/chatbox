@@ -125,3 +125,17 @@ canned_replies:
 pictures:
   categories: [animal, plant, food, place, space, vehicle, landmark, instrument,
                science, geography, travel]
+
+# Games. A game counts toward its daily_games once it's finished: the animal was
+# guessed (or the kid gave up), or all five words were read (or told). Nothing said
+# during a game counts toward limits.daily_questions. The reading game's grade is K to 5.
+games:
+  animal_guessing:
+    enabled: true
+    daily_games: 5
+    unavailable_reply: We can't play the animal guessing game right now. You can still ask me questions!
+  reading:
+    enabled: true
+    daily_games: 5
+    grade: K
+    unavailable_reply: We can't play the reading game right now. You can still ask me questions!

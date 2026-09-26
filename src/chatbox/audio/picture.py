@@ -23,6 +23,11 @@ Between turns the screen is blank. An idle picture was considered and dropped: a
 screen that is lit only while Chatbox speaks tells a child, without a word, which of
 the two things on the front panel is the one that is talking -- and it can't sit
 showing a jellyfish half an hour after anyone asked about one.
+
+The one exception to both rules is the reading game (chatbox.reading_game): the child
+has to read a word, so it is shown, large, the whole time the game is on -- between turns
+too, while they press the button and read. No pictures are looked up meanwhile. The
+pipeline tells the screen which word through `PictureShow.word`.
 """
 
 from __future__ import annotations
@@ -97,6 +102,8 @@ class PictureShow:
         self._turn = 0          # bumped per turn, so a late picture knows if it's stale
         self._showing = False   # True between show() and clear(): is anyone speaking?
         self._stop = threading.Event()   # set by clear(): ends this turn's swapping
+        self._word: str | None = None      # a game's word, shown instead of pictures
+        self._word_image = None
 
     # -- called from the classifier, as soon as the subject is known ----------
 
@@ -107,6 +114,8 @@ class PictureShow:
             self._pending = self.previous = None
             self._results, self.shown = [], []
             subjects = [x for x in (subject, opponent) if x] if subject else []
+            if self._word is not None:
+                subjects = []     # a game's word is on the screen; it stays there
             self._wanted = len(subjects)
             if not subjects:
                 return
@@ -154,6 +163,35 @@ class PictureShow:
         pending = self._pending
         return pending is not None and not pending.done()
 
+    # -- called from the pipeline, when a game's word changes -----------------
+
+    def word(self, word: str | None) -> None:
+        """Show `word` from now until it changes, between turns too; None goes back to
+        pictures, and a blank screen between turns."""
+        with self._lock:
+            if word == self._word:
+                return
+            self._word, self._word_image = word, None
+            showing = self._showing
+        if word is None:
+            if not showing:
+                self._blank()
+            return
+        try:
+            image = word_image(word, getattr(self.display, "size", (320, 240)))
+        except Exception as e:  # noqa: BLE001 - no font, no word; the game still talks
+            _log.debug("couldn't draw the word %r: %s", word, e)
+            return
+        with self._lock:
+            if self._word != word:
+                return            # it changed again while this was drawn
+            self._word_image = image
+        with self._draw:
+            try:
+                self.display.show(image)
+            except Exception as e:  # noqa: BLE001
+                _log.debug("couldn't show the word %r: %s", word, e)
+
     # -- called from the speaker ---------------------------------------------
 
     def show(self) -> None:
@@ -183,12 +221,18 @@ class PictureShow:
             self._put(pictures[(at + 1) % len(pictures)], turn)
 
     def clear(self) -> None:
-        """The turn is over: the screen goes blank so it never outlives the answer."""
+        """The turn is over: the screen goes blank so it never outlives the answer --
+        unless a game's word is up, which stays."""
         with self._lock:
             self._showing = False
             self._stop.set()
             self.last = None
             self._results = []
+            if self._word_image is not None:
+                return
+        self._blank()
+
+    def _blank(self) -> None:
         with self._draw:
             try:
                 self.display.blank()
@@ -217,6 +261,40 @@ class PictureShow:
                     self.last = self.previous = picture
                     if not any(p is picture for p in self.shown):
                         self.shown.append(picture)
+
+
+# Where a clear, bold font usually is: Raspberry Pi OS, other Linux, macOS. Without one,
+# Pillow's own font is used.
+_FONTS = ["/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+          "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf",
+          "/System/Library/Fonts/Supplemental/Arial Bold.ttf"]
+
+
+def word_image(word: str, size: tuple[int, int]):
+    """`word` in large black letters on white, like a page in a book, as big as fits."""
+    from PIL import Image, ImageDraw, ImageFont
+
+    def font(px: int):
+        for path in _FONTS:
+            try:
+                return ImageFont.truetype(path, px)
+            except OSError:
+                continue
+        return ImageFont.load_default(size=px)
+
+    width, height = size
+    image = Image.new("RGB", size, "white")
+    draw = ImageDraw.Draw(image)
+    px = height // 2
+    while True:
+        f = font(px)
+        left, top, right, bottom = draw.textbbox((0, 0), word, font=f)
+        if right - left <= width * 0.9 or px <= 12:
+            break
+        px -= 4
+    draw.text(((width - (right - left)) / 2 - left, (height - (bottom - top)) / 2 - top),
+              word, font=f, fill="black")
+    return image
 
 
 class WatchingClassifier:

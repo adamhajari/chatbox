@@ -1,5 +1,10 @@
 """The editor page: one server-rendered HTML form, no JavaScript. Adding or removing a
-row, previewing the prompt and saving are all plain submit buttons."""
+row, previewing the prompt and saving are all plain submit buttons.
+
+The settings are split into tabs (Questions, Games) with CSS only: each tab is a radio
+button, and a panel shows while its button is checked. Every panel stays in the one form,
+so Save on either tab saves everything, and the checked tab is posted with it, so the page
+comes back on the same tab."""
 
 from __future__ import annotations
 
@@ -8,6 +13,7 @@ from typing import Any
 
 from chatbox.policy import WEEKDAYS
 from chatbox.pricing import format_cost
+from chatbox.reading_game import GRADE_NAMES, WORDS, WORDS_PER_GAME
 from chatbox.web.form import KINDS
 
 _CSS = """
@@ -56,6 +62,18 @@ pre { white-space:pre-wrap; word-wrap:break-word; font-size:.85rem; background:v
 .count { font-size:1.6rem; font-weight:700; }
 .paused { background:#fff4e5; border-color:#f0b35b; }
 button.warn { background:#b3261e; color:#fff; border-color:#b3261e; font-weight:600; }
+.tab-radio { position:absolute; opacity:0; pointer-events:none; }
+.tabs { display:flex; gap:6px; margin:20px 0 0; border-bottom:1px solid var(--line); }
+.tabs label { margin:0; padding:10px 18px; border:1px solid transparent; border-bottom:none;
+              border-radius:10px 10px 0 0; color:var(--muted); cursor:pointer; }
+.tabs .has-err::after { content:" •"; color:var(--err); }
+.panel { display:none; }
+#tab-questions:checked ~ .tabs label[for=tab-questions],
+#tab-games:checked ~ .tabs label[for=tab-games] {
+  background:var(--card); border-color:var(--line); color:var(--fg); margin-bottom:-1px; }
+#tab-questions:focus-visible ~ .tabs label[for=tab-questions],
+#tab-games:focus-visible ~ .tabs label[for=tab-games] { outline:2px solid var(--accent); }
+#tab-questions:checked ~ #panel-questions, #tab-games:checked ~ #panel-games { display:block; }
 """
 
 KIND_LABELS = {
@@ -78,6 +96,8 @@ CANNED_HELP = {
     "didnt_catch_that": ("Didn't catch that", "Voice only: when the recording was silent or "
                          "no words were recognized."),
 }
+TABS = {"questions": "Questions", "games": "Games"}
+GAME_NAMES = {"animal_guessing": "animal guessing", "reading": "reading"}
 DAY_LABELS = dict(zip(WEEKDAYS, ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]))
 
 
@@ -106,6 +126,14 @@ class _Page:
         help_html = f'<p class="help">{_e(help)}</p>' if help else ""
         return (f'<div{self.bad(key)}><label for="{_e(name)}">{_e(label)}</label>{help_html}'
                 f'{field}{self.err(key)}</div>')
+
+    def select(self, name: str, label: str, value: Any, options: dict[str, str],
+               help: str = "") -> str:
+        choices = "".join(f'<option value="{_e(k)}"{" selected" if str(value) == k else ""}>'
+                          f'{_e(v)}</option>' for k, v in options.items())
+        help_html = f'<p class="help">{_e(help)}</p>' if help else ""
+        return (f'<div{self.bad(name)}><label for="{_e(name)}">{_e(label)}</label>{help_html}'
+                f'<select id="{_e(name)}" name="{_e(name)}">{choices}</select>{self.err(name)}</div>')
 
     def checkbox(self, name: str, label: str, on: bool, disabled: bool = False) -> str:
         return (f'<label class="inline"><input type="checkbox" name="{_e(name)}" value="1"'
@@ -236,6 +264,50 @@ Windows can't go past midnight.</p>
                        for k, (label, help) in CANNED_HELP.items())
         return f'<section><h2>Fixed replies</h2><p class="help">Said word for word.</p>{rows}</section>'
 
+    def animal_guessing(self) -> str:
+        g = self.data["games"]["animal_guessing"]
+        name = "games.animal_guessing"
+        return f"""<section><h2>Animal guessing game</h2>
+<p class="help">Chatbox thinks of an animal, and the kids ask yes-or-no questions ("Does it
+fly?") until they guess it. They start it by saying "I want to play the animal guessing
+game" and stop with "I'm done playing". After a game, "play again" starts another.</p>
+{self.err(name)}
+{self.checkbox(f"{name}.enabled", "Kids can play it", g["enabled"])}
+{self.text(f"{name}.daily_games", "Games per day", g["daily_games"],
+           "A game counts once it's finished: someone guessed the animal, or gave up and heard "
+           "it. A game stopped partway through doesn't count. Questions asked during a game "
+           "don't count toward the day's questions. 0 to 100.",
+           kind="number", extra=' inputmode="numeric" min="0" max="100"')}
+{self.text(f"{name}.unavailable_reply", "When it can't play", g["unavailable_reply"],
+           "Said word for word when a kid asks to play while the game is off or today's games "
+           "are used up.", area=True)}
+</section>"""
+
+    def reading(self) -> str:
+        g = self.data["games"]["reading"]
+        name = "games.reading"
+        levels = {k: f"{v[:1].upper()}{v[1:]} (like {', '.join(WORDS[k][:3])})"
+                  for k, v in GRADE_NAMES.items()}
+        return f"""<section><h2>Reading game</h2>
+<p class="help">Chatbox shows a word on the screen, and the kid reads it out loud. It cheers
+a right answer, gives a hint after a wrong one, and says the word after
+three wrong tries or when asked. A game is {WORDS_PER_GAME} words. The kids start it by saying
+"let's play the reading game" and stop with "I'm done playing". Needs the screen; without
+one, the word is shown in the terminal.</p>
+{self.err(name)}
+{self.checkbox(f"{name}.enabled", "Kids can play it", g["enabled"])}
+{self.select(f"{name}.grade", "Reading level", g["grade"], levels,
+             "The words shown are for this grade.")}
+{self.text(f"{name}.daily_games", "Games per day", g["daily_games"],
+           f"A game counts once all {WORDS_PER_GAME} words have been read (or told). A game "
+           "stopped partway through doesn't count, and nothing said during a game counts "
+           "toward the day's questions. 0 to 100.",
+           kind="number", extra=' inputmode="numeric" min="0" max="100"')}
+{self.text(f"{name}.unavailable_reply", "When it can't play", g["unavailable_reply"],
+           "Said word for word when a kid asks to play while the game is off or today's games "
+           "are used up.", area=True)}
+</section>"""
+
 
 # The page's only script: keeps today's count current without reloading the page, which
 # would lose unsaved edits. Without JavaScript the count still updates on reload.
@@ -244,7 +316,10 @@ setInterval(async () => {
   try {
     const r = await fetch("/status.json", {cache: "no-store"});
     if (r.ok) { const s = await r.json();
-      document.getElementById("count").textContent = s.used + " of " + s.limit; }
+      document.getElementById("count").textContent = s.used + " of " + s.limit;
+      for (const [id, g] of Object.entries(s.games)) {
+        const el = document.getElementById("games-" + id);
+        if (el && g.limit !== null) el.textContent = g.played + " of " + g.limit; } }
   } catch (e) {}
 }, 5000);
 </script>"""
@@ -294,7 +369,25 @@ def status_panel(status: dict[str, Any]) -> str:
 <form method="post" action="/controls"><button name="action" value="reset_count">Reset today's count</button></form>
 <form method="post" action="/controls">{toggle}</form>
 </div></div>
+{games_status(status)}
 {volume_control(status["volume"])}</section>"""
+
+
+def games_status(status: dict[str, Any]) -> str:
+    """Today's finished games, one count per game, with one reset button for them all."""
+    counts = []
+    for game_id, g in status["games"].items():
+        name = GAME_NAMES.get(game_id, game_id)
+        if g["limit"] is None:
+            count, note = "Off", f"the {name} game is turned off (Games tab)"
+        else:
+            count, note = f'{g["played"]} of {g["limit"]}', f"{name} games finished today"
+        counts.append(f'<div><div class="count" id="games-{_e(game_id)}">{_e(count)}</div>'
+                      f'<p class="help">{_e(note)}</p></div>')
+    return f"""<div class="status" style="margin-top:14px">
+{"".join(counts)}
+<form method="post" action="/controls"><button name="action" value="reset_games">Reset today's games</button></form>
+</div>"""
 
 
 def volume_control(volume: int) -> str:
@@ -311,6 +404,20 @@ def volume_control(volume: int) -> str:
 </form><p class="help">Applies to the next thing Chatbox says. 0 is silent.</p></div>"""
 
 
+def tabs(panels: dict[str, str], current: str, with_errors: set[str]) -> str:
+    """The tab buttons (radios, then their labels) followed by the panels, all siblings so
+    the CSS can show the checked tab's panel."""
+    radios = "".join(
+        f'<input type="radio" class="tab-radio" name="tab" value="{t}" id="tab-{t}"'
+        f'{" checked" if t == current else ""}>' for t in TABS)
+    has_err = ' class="has-err"'
+    labels = "".join(
+        f'<label for="tab-{t}"{has_err if t in with_errors else ""}>{_e(name)}</label>'
+        for t, name in TABS.items())
+    body = "".join(f'<div class="panel" id="panel-{t}">{panels[t]}</div>' for t in TABS)
+    return f'{radios}<nav class="tabs">{labels}</nav>{body}'
+
+
 def render(
     data: dict[str, Any],
     *,
@@ -324,11 +431,28 @@ def render(
     prompt_is_preview: bool = False,
     exchanges: list[dict[str, Any]] | None = None,
     logging_hint: str = "",
+    tab: str = "",
 ) -> str:
     errors = errors or {}
     page = _Page(data, errors)
-    body = "\n".join([page.persona(), page.schedule(), page.answers(), page.honesty(),
-                      page.topics(), page.pictures(), page.canned()])
+    prompt_title = ("Preview of the system prompt (not saved yet)" if prompt_is_preview
+                    else "System prompt in use now")
+    panels = {
+        "questions": "\n".join([
+            page.persona(), page.schedule(), page.answers(), page.honesty(), page.topics(),
+            page.pictures(), page.canned(),
+            f"""<section><details{" open" if prompt_is_preview else ""}><summary><h2 style="display:inline">{_e(prompt_title)}</h2></summary>
+<p class="help">What the answering model is told. Read-only; it's built from the settings above.</p>
+<pre>{_e(prompt)}</pre></details></section>"""]),
+        "games": page.animal_guessing() + page.reading(),
+    }
+    # Open the tab asked for, unless the errors are all on the other one.
+    with_errors = {t for t in TABS for k in errors if (k.startswith("games")) == (t == "games")}
+    if tab not in TABS:
+        tab = "questions"
+    if with_errors and tab not in with_errors:
+        tab = next(iter(with_errors))
+    body = tabs(panels, tab, with_errors)
     banners = []
     if message:
         banners.append(f'<div class="banner {"ok" if message_ok else "err"}">{_e(message)}</div>')
@@ -339,8 +463,6 @@ def render(
                 if n else "")
         extra = "".join(f"<br>{_e(m)}" for m in leftover)
         banners.append(f'<div class="banner err">{_e(text)}{extra}</div>')
-    prompt_title = ("Preview of the system prompt (not saved yet)" if prompt_is_preview
-                    else "System prompt in use now")
     return f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -354,9 +476,6 @@ def render(
 <button class="hidden-default" name="action" value="preview" tabindex="-1" aria-hidden="true">Preview</button>
 <input type="hidden" name="base_version" value="{base_version}">
 {body}
-<section><details{" open" if prompt_is_preview else ""}><summary><h2 style="display:inline">{_e(prompt_title)}</h2></summary>
-<p class="help">What the answering model is told. Read-only; it's built from the settings above.</p>
-<pre>{_e(prompt)}</pre></details></section>
 {exchanges_panel(exchanges, logging_hint) if exchanges is not None or logging_hint else ""}
 <div class="actions"><div>
 <button name="action" value="preview">Preview prompt</button>

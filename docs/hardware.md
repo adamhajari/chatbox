@@ -377,7 +377,9 @@ transistor between the pin and the backlight rather than a direct connection.
 pin free.
 
 Pictures only, never text (D28): young children may not read yet, so the screen
-supplements the spoken answer and is never needed to understand it.
+supplements the spoken answer and is never needed to understand it. The one exception is
+the reading game, where a word is shown for the child to read, and stays up for the
+whole game (README, "The reading game").
 
 **What it shows and when.** The picture goes up as the answer starts being spoken and
 comes down when the turn ends; the rest of the time the screen is blank. Blank rather

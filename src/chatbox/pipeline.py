@@ -14,9 +14,10 @@ A Pipeline is one chat session: follow-up questions see the earlier exchanges.
 Nothing carries over between sessions (yet; see PLAN.md D9).
 
 A session starts in question-answering mode. When the classifier hears a request to
-play the animal guessing game, it switches to game mode (chatbox.animal_game) until the
-child says they're done, or a round ends without "play again": answers then come from
-the game's prompt, with the same guardrails around them.
+play a game (chatbox.games), it switches to that game until the child says they're done
+or the game ends without "play again": answers then come from the game, with the same
+guardrails around them. Nothing in a game counts toward the day's questions; each
+finished game counts toward that game's own daily limit.
 
 The policy comes from a PolicyStore, so a save from the parent web UI applies from the
 next question (D20). Each question uses the snapshot taken when it started.
@@ -34,13 +35,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Callable, Literal
 
-from chatbox.animal_game import (
-    START_REPLY,
-    AnimalGame,
-    game_system_prompt,
-    names_animal,
-    stop_reply,
-)
+from chatbox.games import Game, GameReply, games_by_mode
 from chatbox.guardrails import (
     Classification,
     InputClassifier,
@@ -104,6 +99,10 @@ def _err(e: BaseException) -> str:
     return f"{type(e).__name__}: {e}"
 
 
+# What a turn was, for the daily counts: turned away (not counted, not remembered), a
+# question (counts toward limits.daily_questions), or part of a game (doesn't).
+Turn = Literal["denied", "question", "game"]
+
 # What every question gets while a parent has paused Chatbox from the settings page.
 PAUSED_REPLY = "I'm currently resting. Let's talk later."
 
@@ -136,10 +135,10 @@ def _total(usage: list[dict], key: str) -> int | None:
     return sum(known) if known else None
 
 
-def _discarded_usage(future: Future) -> Usage | None:
+def _discarded_usage(future: Future | None) -> Usage | None:
     """A discarded answer is still billed. Count it if it has already finished; one still
     running is left out, since nothing waits for it."""
-    if not future.done():
+    if future is None or not future.done():
         return None
     outcome: _Outcome = future.result()
     return outcome.value.usage if isinstance(outcome.value, ModelReply) else None
@@ -176,7 +175,7 @@ class Pipeline:
         clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
         controls: Controls | None = None,  # None = no pause switch
         prices: dict[str, Price] | None = None,  # chatbox.toml [pricing], for the cost log
-        rng: random.Random | None = None,  # picks the guessing game's animal
+        rng: random.Random | None = None,  # picks each game's animal or words
     ) -> None:
         self.controls = controls
         self.prices = prices or {}
@@ -190,9 +189,12 @@ class Pipeline:
         self.check_timeout_s = check_timeout_s
         self.generate_timeout_s = generate_timeout_s
         self.history: list[ChatMessage] = []  # alternating user/assistant, this session only
-        self.game: AnimalGame | None = None  # None = question-answering mode
-        self.last_animal: str | None = None  # so "play again" never gets the same one
+        self.game: Game | None = None  # None = question-answering mode
+        self.last_games: dict[str, Game] = {}  # by id, so "play again" isn't a repeat
         self.rng = rng or random.Random()
+        # Called with the word a game wants on the screen whenever it changes, or None
+        # when there's none (see chatbox.audio.picture.PictureShow.word).
+        self.show_word: Callable[[str | None], None] | None = None
         self.clock = clock
 
     @property
@@ -229,22 +231,18 @@ class Pipeline:
                               "cached_input_tokens": u.cached_input_tokens,
                               "cost_usd": cost_usd(u, self.prices)})
 
-        answer_text, answered_by, model_reply = self._run(
+        answer_text, answered_by, model_reply, turn = self._run(
             snap, question, now, local_date, step, spent)
         latency_ms = round((time.monotonic() - started) * 1000)
         costs = [u["cost_usd"] for u in usage]
         total_cost = None if None in costs else sum(costs)
 
-        # An answer that names the secret animal ends the round (it was guessed, or the
-        # child gave up), so the next question is answered normally unless it's "play again".
-        game = self.game
-        if game is not None and answered_by == "model" and names_animal(answer_text, game.animal):
-            self.game = None
-            step("game", "over", f"the answer named the secret animal, {game.animal}", 0)
+        self._update_screen()
 
-        # Questions turned away by the limits don't count and don't join the conversation.
-        if steps[0]["decision"] == "allow":
+        # Questions turned away don't count and don't join the conversation.
+        if turn == "question":
             self.counter.increment(local_date)
+        if turn != "denied":
             self._remember(question, answer_text)
 
         answer = Answer(answer_text, answered_by, steps, None, latency_ms, usage, total_cost)
@@ -279,49 +277,107 @@ class Pipeline:
             # Keep the most any policy allows, so raising the setting mid-session takes effect.
             del history[: max(0, len(history) - 2 * MAX_REMEMBER_EXCHANGES)]
 
+    def _update_screen(self) -> None:
+        if self.show_word is None:
+            return
+        try:
+            self.show_word(self.game.screen_word if self.game else None)
+        except Exception as e:  # noqa: BLE001 - the screen never fails a question
+            _log.debug("couldn't update the screen: %s", e)
+
+    def _games_left(self, policy: Policy, local_date: str, game_id: str) -> int:
+        g = getattr(policy.games, game_id)
+        if not g.enabled:
+            return 0
+        return max(0, g.daily_games - self.counter.games(local_date, game_id))
+
+    def _any_games_left(self, policy: Policy, local_date: str) -> bool:
+        return any(self._games_left(policy, local_date, g.id) > 0
+                   for g in games_by_mode().values())
+
+    def _advance(self, game: Game, outcome: str, text: str, local_date: str,
+                 step: Callable[..., None]) -> str:
+        """Apply a game answer the child is about to hear; returns the text to say."""
+        before = game.progress()
+        closing, over = game.advance(outcome)
+        if over:
+            self.game = None
+            self.counter.increment_games(local_date, game.id)
+            step("game", "over", f"finished ({before})", 0)
+        elif outcome == "done":
+            step("game", "next", game.progress(), 0)
+        return f"{text} {closing}" if closing else text
+
     def _run(
         self, snap: PolicySnapshot, question: str, now: datetime, local_date: str,
         step: Callable[..., None], spent: Callable[[str, Usage | None], None],
-    ) -> tuple[str, Literal["model", "canned"], ModelReply | None]:
+    ) -> tuple[str, Literal["model", "canned"], ModelReply | None, Turn]:
         policy = snap.policy
         went_wrong = policy.canned_replies.something_went_wrong
 
         # A parent's pause beats everything; paused questions don't count toward the cap.
         if self.controls is not None and self.controls.paused:
             step("pause", "deny", "paused from the settings page", 0)
-            return PAUSED_REPLY, "canned", None
+            return PAUSED_REPLY, "canned", None, "denied"
 
-        # Layer 6: schedule and daily cap.
+        game = self.game
+        if game is not None and not getattr(policy.games, game.id).enabled:
+            self.game = game = None  # a parent turned the game off partway through
+
+        # Layer 6: schedule and daily cap. Game questions don't count toward the cap, so a
+        # game carries on after the day's questions are used up, and while there are games
+        # left a request to play can still start one. Only the classifier can tell that
+        # request apart, so it still runs; anything else gets the daily-limit reply.
         used = self.counter.get(local_date)
+        cap = policy.limits.daily_questions
         limit = check_limits(policy, now, used)
-        if not limit.allowed:
+        over_cap = limit.reason == "daily_limit_reached"
+        games_only = over_cap and game is None and self._any_games_left(policy, local_date)
+        if not limit.allowed and not (over_cap and game is not None) and not games_only:
             step("limits", "deny", limit.reason, 0)
-            return limit.canned_reply, "canned", None
-        step("limits", "allow", f"{used + 1}/{policy.limits.daily_questions} today", 0)
+            return limit.canned_reply, "canned", None, "denied"
+        if game is not None:
+            step("limits", "allow", "a game question, not counted", 0)
+        elif games_only:
+            step("limits", "games_only", f"{used}/{cap} questions today; only a game can start", 0)
+        else:
+            step("limits", "allow", f"{used + 1}/{cap} today", 0)
+        turn: Turn = "game" if game is not None else "denied" if games_only else "question"
 
         # Layer 3 and layers 1-2 run concurrently; the answer is only used on "allow".
         # The classifier sees everything kept and trims to its own setting, so it judges
         # follow-ups in context even when the answering model is told to forget.
         history = list(self.history)
-        game = self.game
         keep = 2 * policy.answers.remember_exchanges
         earlier = list(game.history) if game else history
         messages = [*(earlier[-keep:] if keep else []), ChatMessage("user", question)]
-        system = game_system_prompt(policy, game.animal) if game else snap.system_prompt
         started = time.monotonic()
         classify_f = _POOL.submit(_timed, self.classifier.classify, question, history, policy)
-        generate_f = _POOL.submit(_timed, self.provider.generate, system, messages)
+        if games_only:
+            generate_f = None
+        elif game is not None:
+            generate_f = _POOL.submit(_timed, game.answer, self.provider,
+                                      game.system_prompt(policy), messages)
+        else:
+            generate_f = _POOL.submit(_timed, self.provider.generate, snap.system_prompt,
+                                      messages)
 
         c = _wait(classify_f, self.classify_timeout_s, started)
         if c.error is not None:
             step("classify", "error", f"failed closed: {_err(c.error)}", c.ms)
             step("generate", "discarded", "classifier failed", None)
             spent("answer (discarded)", _discarded_usage(generate_f))
-            return went_wrong, "canned", None
+            return went_wrong, "canned", None, turn
         cls: Classification = c.value
         spent("classify", cls.usage)
         detail = f"{cls.topic_id}: {cls.detail}" if cls.topic_id else cls.detail
         step("classify", cls.decision, detail + _picture_note(cls), c.ms)
+
+        # Over the question cap, only an allowed request to play gets past here.
+        starts = games_by_mode().get(cls.mode_change or "")
+        if games_only and not (cls.decision == "allow" and starts is not None):
+            step("limits", "deny", f"{limit.reason}: not a request to play", 0)
+            return limit.canned_reply, "canned", None, "denied"
 
         # Layer 5: canned replies for sensitive categories.
         canned = canned_reply_for(cls, policy)
@@ -329,55 +385,71 @@ class Pipeline:
             step("canned", "use", cls.topic_id or cls.decision, 0)
             step("generate", "discarded", f"classifier said {cls.decision}", None)
             spent("answer (discarded)", _discarded_usage(generate_f))
-            return canned, "canned", None
+            return canned, "canned", None, turn
         step("canned", "skip", "", 0)
 
-        # Starting or stopping the guessing game gets a fixed reply, with no model call.
-        if cls.mode_change == "start_animal_game":
-            self.game = AnimalGame.start(self.rng, self.last_animal)
-            self.last_animal = self.game.animal
-            step("game", "start", f"secret animal: {self.game.animal}", 0)
-            step("generate", "discarded", "the guessing game started", None)
+        # Starting or stopping a game gets a fixed reply, with no model call.
+        if starts is not None:
             spent("answer (discarded)", _discarded_usage(generate_f))
-            return START_REPLY, "canned", None
-        if cls.mode_change == "stop_animal_game" and game is not None:
+            settings = getattr(policy.games, starts.id)
+            if self._games_left(policy, local_date, starts.id) == 0:
+                why = (f"{settings.daily_games}/{settings.daily_games} games today"
+                       if settings.enabled else "turned off in the settings")
+                step("game", "unavailable", f"{starts.id}: {why}", 0)
+                step("generate", "discarded", "asked to play, but can't", None)
+                return settings.unavailable_reply, "canned", None, "game"
+            self.game = new = starts.start(self.rng, policy, self.last_games.get(starts.id))
+            self.last_games[new.id] = new
+            step("game", "start", f"{new.id}, {new.progress()}", 0)
+            step("generate", "discarded", "a game started", None)
+            return new.start_reply, "canned", None, "game"
+        if cls.mode_change == "stop_game" and game is not None:
             self.game = None
-            step("game", "stop", f"secret animal was {game.animal}", 0)
-            step("generate", "discarded", "the guessing game stopped", None)
+            step("game", "stop", f"{game.id}, {game.progress()}", 0)
+            step("generate", "discarded", "the game stopped", None)
             spent("answer (discarded)", _discarded_usage(generate_f))
-            return stop_reply(game.animal), "canned", None
+            return game.stop_reply(), "canned", None, "game"
         if game is not None:
-            step("game", "play", f"secret animal: {game.animal}", 0)
+            step("game", "play", f"{game.id}, {game.progress()}", 0)
 
         g = _wait(generate_f, self.generate_timeout_s, started)
         if g.error is not None:
             step("generate", "error", _err(g.error), g.ms)
-            return went_wrong, "canned", None
-        reply: ModelReply = g.value
+            return went_wrong, "canned", None, turn
+        game_reply: GameReply | None = g.value if game is not None else None
+        reply: ModelReply = game_reply.reply if game_reply else g.value
         spent("answer", reply.usage)
         if reply.refused or not reply.text:
             step("generate", "refused" if reply.refused else "empty", reply.stop_reason or "", g.ms)
-            return policy.canned_replies.blocked_topic, "canned", reply
+            return policy.canned_replies.blocked_topic, "canned", reply, turn
         step("generate", "ok", reply.stop_reason or "", g.ms)
 
         # Layer 4: output check on the whole answer.
         if self.output_checker is None:
             step("output_check", "skipped", "turned off in chatbox.toml", 0)
-            return reply.text, "model", reply
+            return self._said(game_reply, reply.text, local_date, step), "model", reply, turn
         check_started = time.monotonic()
         check_f = _POOL.submit(_timed, self.output_checker.check, question, reply.text, history, policy)
         v = _wait(check_f, self.check_timeout_s, check_started)
         if v.error is not None:
             step("output_check", "error", f"failed closed: {_err(v.error)}", v.ms)
-            return went_wrong, "canned", reply
+            return went_wrong, "canned", reply, turn
         verdict: OutputVerdict = v.value
         spent("output_check", verdict.usage)
         if not verdict.passed:
             step("output_check", "fail", verdict.detail, v.ms)
-            return policy.canned_replies.blocked_topic, "canned", reply
+            return policy.canned_replies.blocked_topic, "canned", reply, turn
         step("output_check", "pass", verdict.detail, v.ms)
 
-        return reply.text, "model", reply
+        return self._said(game_reply, reply.text, local_date, step), "model", reply, turn
+
+    def _said(self, game_reply: GameReply | None, text: str, local_date: str,
+              step: Callable[..., None]) -> str:
+        """The checked answer the child will hear. A game's answer moves the game on
+        only now, once it has passed: one the child never hears changes nothing."""
+        if game_reply is None or self.game is None:
+            return text
+        return self._advance(self.game, game_reply.outcome, text, local_date, step)
 
 
 def build_pipeline(

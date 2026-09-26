@@ -26,7 +26,7 @@ class Modes:
     """Allows everything, and hears a mode change in the phrases above."""
 
     MODES = {START: "start_animal_game", "play again": "start_animal_game",
-             STOP: "stop_animal_game"}
+             STOP: "stop_game"}
 
     def classify(self, question, history, policy):
         return Classification("allow", detail="test", mode_change=self.MODES.get(question))
@@ -143,7 +143,7 @@ def test_play_again_picks_a_new_animal(policy, make):
 def test_a_new_round_never_repeats_the_last_animal():
     rng = random.Random(0)
     for animal in ANIMALS:
-        assert AnimalGame.start(rng, animal).animal != animal
+        assert AnimalGame.start(rng, None, AnimalGame(animal)).animal != animal
 
 
 def test_classifier_hears_the_whole_session(policy, make):
@@ -163,7 +163,9 @@ def test_classifier_hears_the_whole_session(policy, make):
 
 @pytest.mark.parametrize("value, expected", [
     ("start_animal_game", "start_animal_game"),
-    ("stop_animal_game", "stop_animal_game"),
+    ("start_reading_game", "start_reading_game"),
+    ("stop_game", "stop_game"),
+    ("stop_animal_game", None),
     ("none", None),
     ("dance", None),
     (None, None),
@@ -178,7 +180,7 @@ def test_classifier_mode_change_never_fails_a_question(policy, value, expected):
 
 def test_classifier_is_told_about_the_game(policy):
     s = classifier_system_prompt(policy)
-    assert "start_animal_game" in s and "stop_animal_game" in s
+    assert "start_animal_game" in s and "start_reading_game" in s and "stop_game" in s
 
 
 def test_game_prompt_keeps_the_policy_rules(policy):
@@ -267,3 +269,137 @@ def test_a_blocked_answer_that_names_the_animal_doesnt_end_the_round(policy, cou
 ])
 def test_names_animal(answer, animal, named):
     assert names_animal(answer, animal) is named
+
+
+# ---- daily limits -------------------------------------------------------------------
+
+from chatbox.animal_game import GAME_ID  # noqa: E402
+from chatbox.policy import Policy  # noqa: E402
+
+
+class Records(Modes):
+    def __init__(self):
+        self.questions = []
+
+    def classify(self, question, history, policy):
+        self.questions.append(question)
+        return super().classify(question, history, policy)
+
+
+def with_limits(policy_data, questions=40, games=5, enabled=True):
+    policy_data["limits"]["daily_questions"] = questions
+    policy_data.setdefault("games", {})["animal_guessing"] = {"enabled": enabled,
+                                                            "daily_games": games}
+    return Policy.model_validate(policy_data)
+
+
+def finish_round(p):
+    """Guess the animal, so the round ends and counts as a finished game."""
+    animal = p.game.animal
+    p.provider = Says({f"Is it a {animal}?": f"Yes! It was a {animal}!"})
+    return p.ask(f"Is it a {animal}?")
+
+
+def test_game_questions_dont_count_toward_the_days_questions(policy, make):
+    p, _ = make(policy)
+    p.ask(START)
+    p.ask("Does it fly?")
+    p.ask("Is it a mammal?")
+    p.ask(STOP)
+    assert p.counter.get("2026-09-16") == 0
+    p.ask("Why is the sky blue?")
+    assert p.counter.get("2026-09-16") == 1
+
+
+def test_a_finished_game_counts_and_a_stopped_one_doesnt(policy, make):
+    p, _ = make(policy)
+    p.ask(START)
+    p.ask(STOP)
+    assert p.counter.games("2026-09-16", GAME_ID) == 0
+    p.ask(START)
+    finish_round(p)
+    assert p.counter.games("2026-09-16", GAME_ID) == 1
+    assert p.counter.get("2026-09-16") == 0  # the winning guess was a game question too
+
+
+def test_no_more_games_once_todays_are_finished(policy_data, make):
+    policy = with_limits(policy_data, games=1)
+    p, _ = make(policy)
+    p.ask(START)
+    finish_round(p)
+    a = p.ask("play again")
+    assert a.text == policy.games.animal_guessing.unavailable_reply and p.game is None
+    assert ("game", "unavailable") in steps(a)
+    assert p.counter.get("2026-09-16") == 0
+    # Questions still work.
+    assert p.ask("Why is the sky blue?").answered_by == "model"
+
+
+def test_zero_games_per_day_means_no_games(policy_data, make):
+    policy = with_limits(policy_data, games=0)
+    p, _ = make(policy)
+    assert p.ask(START).text == policy.games.animal_guessing.unavailable_reply
+
+
+def test_a_game_that_is_turned_off_cant_start(policy_data, make):
+    policy = with_limits(policy_data, enabled=False)
+    p, _ = make(policy)
+    a = p.ask(START)
+    assert a.text == policy.games.animal_guessing.unavailable_reply and p.game is None
+    assert "turned off" in next(s["detail"] for s in a.steps if s["step"] == "game")
+
+
+def test_turning_the_game_off_ends_one_in_progress(policy, make):
+    from chatbox.policy_store import PolicyStore
+    p, provider = make(policy)
+    p.store = PolicyStore(policy)
+    p.ask(START)
+    data = policy.model_dump(mode="json")
+    data["games"]["animal_guessing"]["enabled"] = False
+    p.store.save(data)
+    p.ask("Does it fly?")
+    assert p.game is None
+    assert system_for(provider, "Does it fly?") == p.system_prompt
+
+
+def test_games_carry_on_after_the_days_questions_are_used_up(policy_data, make):
+    policy = with_limits(policy_data, questions=1)
+    p, provider = make(policy)
+    p.ask("Why is the sky blue?")
+    assert p.ask("Why is grass green?").text == policy.canned_replies.daily_limit_reached
+    # A request to play still starts a game, and its questions are answered.
+    assert p.ask(START).text == START_REPLY
+    a = p.ask("Does it fly?")
+    assert a.answered_by == "model" and ("limits", "allow") in steps(a)
+    finish_round(p)
+    # Once the game is over, it's back to the daily-limit reply.
+    a = p.ask("Why is grass green?")
+    assert a.text == policy.canned_replies.daily_limit_reached
+    assert p.counter.get("2026-09-16") == 1
+
+
+def test_over_the_cap_only_the_classifier_runs(policy_data, make):
+    policy = with_limits(policy_data, questions=0)
+    p, provider = make(policy)
+    a = p.ask("Why is the sky blue?")
+    assert a.text == policy.canned_replies.daily_limit_reached
+    assert steps(a) == [("limits", "games_only"), ("classify", "allow"), ("limits", "deny")]
+    assert provider.calls == []  # no answer was asked for
+    assert p.history == []  # and it doesn't join the conversation
+
+
+def test_over_the_cap_with_no_games_left_no_model_is_called(policy_data, make):
+    policy_data["games"] = {"reading": {"daily_games": 0}}
+    policy = with_limits(policy_data, questions=0, games=0)
+    classifier = Records()
+    p, provider = make(policy, classifier=classifier)
+    a = p.ask(START)
+    assert a.text == policy.canned_replies.daily_limit_reached
+    assert classifier.questions == [] and provider.calls == []
+
+
+def test_the_schedule_still_applies_to_games(policy, counter):
+    from tests.conftest import at
+    p = Pipeline(policy, FakeProvider(), counter, clock=lambda: at(2026, 9, 16, 21),
+                 classifier=Modes(), output_checker=PassAll())
+    assert p.ask(START).text == policy.canned_replies.outside_schedule

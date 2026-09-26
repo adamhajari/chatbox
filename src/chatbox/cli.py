@@ -130,6 +130,13 @@ def cmd_chat(args, settings) -> None:
             log.close()
 
 
+def _print_word(word: str | None) -> None:
+    """The reading game's word, for a machine with no screen."""
+    if word:
+        print(f"\n   ┌{'─' * (len(word) + 4)}┐\n   │  {word}  │   (the word on the screen)"
+              f"\n   └{'─' * (len(word) + 4)}┘")
+
+
 def _print_screen(show) -> None:
     """With --verbose, what is on the screen right now (or why nothing is)."""
     if show is None:
@@ -293,6 +300,8 @@ def _start_screen(settings, pipeline):
     """
     screen = settings.screen
     if screen is None:
+        # No screen: the reading game's word is printed instead, so it can be played here.
+        pipeline.show_word = _print_word
         return None
     from chatbox.audio.pi import Screen
     from chatbox.audio.picture import PictureShow, WatchingClassifier
@@ -310,6 +319,7 @@ def _start_screen(settings, pipeline):
     finder = PictureFinder(cache, screen.timeout_seconds, display.size)
     show = PictureShow(display, finder, screen.swap_seconds)
     pipeline.classifier = WatchingClassifier(pipeline.classifier, show)
+    pipeline.show_word = show.word
     print(f"Screen: on, pictures cached in {cache}. "
           "Nothing checks a picture before it is shown (PLAN.md D29).")
     return show

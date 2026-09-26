@@ -43,6 +43,12 @@ def form_for(store) -> dict[str, list[str]]:
         "limits.daily_questions": [str(d["limits"]["daily_questions"])],
         "pictures.categories": [", ".join(d["pictures"]["categories"])],
     }
+    for game, settings in d["games"].items():
+        for k, v in settings.items():
+            if k != "enabled":
+                f[f"games.{game}.{k}"] = [str(v)]
+            elif v:
+                f[f"games.{game}.enabled"] = ["1"]
     for k in ("say_when_unsure", "ask_follow_up_question"):
         if d["answers"][k]:
             f[f"answers.{k}"] = ["1"]
@@ -334,8 +340,10 @@ def test_status_json_follows_questions(live, store):
     assert client.get("/status.json").json()["used"] == 0
     pipeline.ask("one")
     assert client.get("/status.json").json() == {
-        "used": 1, "limit": store.policy.limits.daily_questions, "paused": False,
-        "volume": 100}
+        "used": 1, "limit": store.policy.limits.daily_questions,
+        "games": {"animal_guessing": {"played": 0, "limit": 5},
+                  "reading": {"played": 0, "limit": 5}},
+        "paused": False, "volume": 100}
     assert 'id="count"' in client.get("/").text and "/status.json" in client.get("/").text
 
 
@@ -423,3 +431,77 @@ def test_volume_survives_a_restart(tmp_path):
     again = Controls(db)
     assert again.volume == 35
     again.close()
+
+
+# ---- games tab ------------------------------------------------------------------------
+
+def test_games_tab_shows_the_animal_guessing_settings(client, store):
+    html = client.get("/").text
+    assert 'id="tab-games"' in html and 'id="panel-games"' in html
+    assert 'name="games.animal_guessing.daily_games"' in html
+    assert 'name="games.animal_guessing.enabled" value="1" checked' in html
+    # The Questions tab is open unless another is asked for.
+    assert re.search(r'id="tab-questions" checked', html)
+    assert re.search(r'id="tab-games" checked', client.get("/?tab=games").text)
+
+
+def test_save_from_the_games_tab_applies_and_stays_on_it(client, store, policy_file):
+    f = form_for(store)
+    f["games.animal_guessing.daily_games"] = ["2"]
+    del f["games.animal_guessing.enabled"]
+    f["tab"] = ["games"]
+    r = post(client, f, "save")
+    assert r.status_code == 303 and r.headers["location"].endswith("tab=games")
+    g = store.policy.games.animal_guessing
+    assert g.daily_games == 2 and not g.enabled
+    assert "daily_games: 2" in policy_file.read_text()
+
+
+def test_a_games_error_opens_the_games_tab(client, store):
+    f = form_for(store)
+    f["games.animal_guessing.daily_games"] = ["500"]
+    r = post(client, f, "save")
+    assert r.status_code == 422
+    assert re.search(r'id="tab-games" checked', r.text)
+    assert "Must be 100 or less." in r.text
+
+
+def test_page_shows_todays_games_and_resets_them(live, store):
+    client, pipeline, counter, _ = live
+    counter.increment_games("2026-09-16", "animal_guessing")
+    limit = store.policy.games.animal_guessing.daily_games
+    assert f"1 of {limit}" in client.get("/").text
+    assert client.get("/status.json").json()["games"]["animal_guessing"]["played"] == 1
+    r = client.post("/controls", data={"action": "reset_games"}, follow_redirects=False)
+    assert r.status_code == 303
+    assert counter.games("2026-09-16", "animal_guessing") == 0
+
+
+def test_games_count_says_off_when_the_game_is_off(live, store):
+    client, *_ = live
+    data = store.policy.model_dump(mode="json")
+    data["games"]["animal_guessing"]["enabled"] = False
+    store.save(data)
+    assert "animal guessing game is turned off (Games tab)" in client.get("/").text
+    assert client.get("/status.json").json()["games"]["animal_guessing"]["limit"] is None
+
+
+def test_games_tab_sets_the_reading_level(client, store, policy_file):
+    html = client.get("/?tab=games").text
+    assert 'name="games.reading.grade"' in html and '<option value="K" selected>' in html
+    f = form_for(store)
+    f["games.reading.grade"] = ["3"]
+    f["games.reading.daily_games"] = ["2"]
+    assert post(client, f, "save").status_code == 303
+    r = store.policy.games.reading
+    assert r.grade == "3" and r.daily_games == 2
+    assert "grade: '3'" in policy_file.read_text()
+    assert '<option value="3" selected>' in client.get("/?tab=games").text
+
+
+def test_a_made_up_reading_level_is_refused(client, store):
+    f = form_for(store)
+    f["games.reading.grade"] = ["9"]
+    r = post(client, f, "save")
+    assert r.status_code == 422 and re.search(r'id="tab-games" checked', r.text)
+    assert store.policy.games.reading.grade == "K"

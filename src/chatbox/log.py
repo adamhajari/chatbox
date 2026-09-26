@@ -1,6 +1,7 @@
 """SQLite storage.
 
-- `DailyCounter`: questions per day, for the daily cap. Stores counts only, no text.
+- `DailyCounter`: questions per day, for the daily cap, and finished games per day, for
+  each game's own cap. Stores counts only, no text.
 - `Controls`: switches a parent flips from the settings page (pause). Kept in the database
   so a restart doesn't quietly undo them.
 - `ExchangeLog`: guardrail layer 7 (storage half), full exchange records. On by
@@ -58,6 +59,11 @@ class DailyCounter:
         self._conn.execute(
             "CREATE TABLE IF NOT EXISTS daily_counts (local_date TEXT PRIMARY KEY, count INTEGER NOT NULL)"
         )
+        self._conn.execute(
+            """CREATE TABLE IF NOT EXISTS daily_game_counts (
+                   local_date TEXT NOT NULL, game TEXT NOT NULL, count INTEGER NOT NULL,
+                   PRIMARY KEY (local_date, game))"""
+        )
 
     def get(self, local_date: str) -> int:
         with self._lock:
@@ -79,6 +85,30 @@ class DailyCounter:
         """Start the day's count over (a parent's "reset" button)."""
         with self._lock:
             self._conn.execute("DELETE FROM daily_counts WHERE local_date = ?", (local_date,))
+            self._conn.commit()
+
+    def games(self, local_date: str, game: str) -> int:
+        """Games of `game` finished on that day."""
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT count FROM daily_game_counts WHERE local_date = ? AND game = ?",
+                (local_date, game),
+            ).fetchone()
+        return row[0] if row else 0
+
+    def increment_games(self, local_date: str, game: str) -> None:
+        with self._lock:
+            self._conn.execute(
+                """INSERT INTO daily_game_counts (local_date, game, count) VALUES (?, ?, 1)
+                   ON CONFLICT(local_date, game) DO UPDATE SET count = count + 1""",
+                (local_date, game),
+            )
+            self._conn.commit()
+
+    def reset_games(self, local_date: str) -> None:
+        """Start the day's game counts over (a parent's "reset" button)."""
+        with self._lock:
+            self._conn.execute("DELETE FROM daily_game_counts WHERE local_date = ?", (local_date,))
             self._conn.commit()
 
     def close(self) -> None:
