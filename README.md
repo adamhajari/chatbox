@@ -138,6 +138,32 @@ on a Pi, see [docs/development.md](docs/development.md).
   without it the model reasons first, which is slower and costs more. For
   `claude-haiku-4-5`, leave out `effort`; Haiku doesn't accept it.
 
+## The animal guessing game
+
+Chatbox starts in question-answering mode. Say "I want to play the animal guessing game"
+and it switches to a game: it thinks of an animal, and the children ask yes-or-no questions
+("Is it a mammal?", "Does it fly?", "Does it live in the jungle?"). It answers "Yes!",
+"No!", "Maybe", "Sometimes" or "I don't know" until someone guesses it, then cheers.
+A round also ends when a child gives up and hears the answer. After a round, "play again"
+picks a new animal; anything else is answered normally, back in question-answering mode.
+"I'm done playing" or "let's go back to question answering mode" ends a game partway
+through (Chatbox says what the animal was).
+
+- **Noticing the request:** the guardrail classifier, which already runs on every question,
+  reports a `mode_change` along with its decision. There's no keyword matching, so the
+  request doesn't need exact words, and it costs no extra model call. Starting and stopping
+  get fixed replies with no model call at all.
+- **The secret animal** is picked at random in code (`animal_game.ANIMALS`) and written into
+  the game's system prompt, so it can't change partway through. The log shows it in a
+  `game` step on every game question, so a parent can see it.
+- **The end of a round** is noticed in code: the game's prompt forbids naming the animal
+  until it's guessed or the child gives up, so an answer that names it ends the round. The
+  log shows a `game` step marked `over`.
+- **The same guardrails** apply during the game: limits, classifier, canned replies, and the
+  output check. A refused question gets the usual reply and the game carries on.
+- **Memory:** during a game, the answering model sees only the game so far, up to
+  `answers.remember_exchanges`. A game lasts only as long as the session.
+
 ## Parent settings page
 
 ```bash
@@ -239,6 +265,7 @@ What you can set:
 
 ```
 question → limits → ┬ classify ──┐→ canned reply (redirect/refuse) ─────────→ answer
+                    │              → start / stop the guessing game ───────→ fixed reply
                     └ model answer ┘→ (allow) output check → pass: model answer
                                                           → fail: blocked-topic reply
 ```

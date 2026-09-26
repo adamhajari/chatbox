@@ -13,6 +13,11 @@ unusable data, the child gets a canned reply, never an unchecked answer.
 A Pipeline is one chat session: follow-up questions see the earlier exchanges.
 Nothing carries over between sessions (yet; see PLAN.md D9).
 
+A session starts in question-answering mode. When the classifier hears a request to
+play the animal guessing game, it switches to game mode (chatbox.animal_game) until the
+child says they're done, or a round ends without "play again": answers then come from
+the game's prompt, with the same guardrails around them.
+
 The policy comes from a PolicyStore, so a save from the parent web UI applies from the
 next question (D20). Each question uses the snapshot taken when it started.
 """
@@ -20,6 +25,7 @@ next question (D20). Each question uses the snapshot taken when it started.
 from __future__ import annotations
 
 import logging
+import random
 import threading
 import time
 from concurrent.futures import Future, ThreadPoolExecutor
@@ -28,6 +34,13 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Callable, Literal
 
+from chatbox.animal_game import (
+    START_REPLY,
+    AnimalGame,
+    game_system_prompt,
+    names_animal,
+    stop_reply,
+)
 from chatbox.guardrails import (
     Classification,
     InputClassifier,
@@ -163,6 +176,7 @@ class Pipeline:
         clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
         controls: Controls | None = None,  # None = no pause switch
         prices: dict[str, Price] | None = None,  # chatbox.toml [pricing], for the cost log
+        rng: random.Random | None = None,  # picks the guessing game's animal
     ) -> None:
         self.controls = controls
         self.prices = prices or {}
@@ -176,6 +190,9 @@ class Pipeline:
         self.check_timeout_s = check_timeout_s
         self.generate_timeout_s = generate_timeout_s
         self.history: list[ChatMessage] = []  # alternating user/assistant, this session only
+        self.game: AnimalGame | None = None  # None = question-answering mode
+        self.last_animal: str | None = None  # so "play again" never gets the same one
+        self.rng = rng or random.Random()
         self.clock = clock
 
     @property
@@ -218,6 +235,13 @@ class Pipeline:
         costs = [u["cost_usd"] for u in usage]
         total_cost = None if None in costs else sum(costs)
 
+        # An answer that names the secret animal ends the round (it was guessed, or the
+        # child gave up), so the next question is answered normally unless it's "play again".
+        game = self.game
+        if game is not None and answered_by == "model" and names_animal(answer_text, game.animal):
+            self.game = None
+            step("game", "over", f"the answer named the secret animal, {game.animal}", 0)
+
         # Questions turned away by the limits don't count and don't join the conversation.
         if steps[0]["decision"] == "allow":
             self.counter.increment(local_date)
@@ -247,9 +271,13 @@ class Pipeline:
 
     def _remember(self, question: str, answer: str) -> None:
         # Canned replies are kept too, so a follow-up "why?" sees what was said.
-        self.history += [ChatMessage("user", question), ChatMessage("assistant", answer)]
-        # Keep the most any policy allows, so raising the setting mid-session takes effect.
-        del self.history[: max(0, len(self.history) - 2 * MAX_REMEMBER_EXCHANGES)]
+        exchange = [ChatMessage("user", question), ChatMessage("assistant", answer)]
+        # The game's own list starts with the request that started it, so the answering
+        # model only sees the game; the classifier sees everything, to spot a mode change.
+        for history in (self.history, *([self.game.history] if self.game else [])):
+            history += exchange
+            # Keep the most any policy allows, so raising the setting mid-session takes effect.
+            del history[: max(0, len(history) - 2 * MAX_REMEMBER_EXCHANGES)]
 
     def _run(
         self, snap: PolicySnapshot, question: str, now: datetime, local_date: str,
@@ -275,11 +303,14 @@ class Pipeline:
         # The classifier sees everything kept and trims to its own setting, so it judges
         # follow-ups in context even when the answering model is told to forget.
         history = list(self.history)
+        game = self.game
         keep = 2 * policy.answers.remember_exchanges
-        messages = [*(history[-keep:] if keep else []), ChatMessage("user", question)]
+        earlier = list(game.history) if game else history
+        messages = [*(earlier[-keep:] if keep else []), ChatMessage("user", question)]
+        system = game_system_prompt(policy, game.animal) if game else snap.system_prompt
         started = time.monotonic()
         classify_f = _POOL.submit(_timed, self.classifier.classify, question, history, policy)
-        generate_f = _POOL.submit(_timed, self.provider.generate, snap.system_prompt, messages)
+        generate_f = _POOL.submit(_timed, self.provider.generate, system, messages)
 
         c = _wait(classify_f, self.classify_timeout_s, started)
         if c.error is not None:
@@ -300,6 +331,23 @@ class Pipeline:
             spent("answer (discarded)", _discarded_usage(generate_f))
             return canned, "canned", None
         step("canned", "skip", "", 0)
+
+        # Starting or stopping the guessing game gets a fixed reply, with no model call.
+        if cls.mode_change == "start_animal_game":
+            self.game = AnimalGame.start(self.rng, self.last_animal)
+            self.last_animal = self.game.animal
+            step("game", "start", f"secret animal: {self.game.animal}", 0)
+            step("generate", "discarded", "the guessing game started", None)
+            spent("answer (discarded)", _discarded_usage(generate_f))
+            return START_REPLY, "canned", None
+        if cls.mode_change == "stop_animal_game" and game is not None:
+            self.game = None
+            step("game", "stop", f"secret animal was {game.animal}", 0)
+            step("generate", "discarded", "the guessing game stopped", None)
+            spent("answer (discarded)", _discarded_usage(generate_f))
+            return stop_reply(game.animal), "canned", None
+        if game is not None:
+            step("game", "play", f"secret animal: {game.animal}", 0)
 
         g = _wait(generate_f, self.generate_timeout_s, started)
         if g.error is not None:
