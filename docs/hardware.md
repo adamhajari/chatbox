@@ -114,7 +114,7 @@ GPIO low that pushes 5 V through the resistor into a 3.3 V pin.
 | listening | green | G |
 | thinking | amber | R + G |
 | speaking | blue | B |
-| idle | off | — |
+| idle (ready) | dim white | R + G + B at 15 % |
 
 ---
 

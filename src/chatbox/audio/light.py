@@ -5,11 +5,11 @@ section 1 — all feedback to the kids is audio or lights).
 already pass through it, so the voice turn needs no changes and stays free of hardware:
 the cue it plays to say "I'm listening" lights the LED green by the same act.
 
-    listening   green    the button is down, audio is being captured
-    thinking    amber    released; speech-to-text, the checks and the answer are running
-    speaking    blue     the answer is being played
-    error       red      something failed and the child heard an error sound
-    idle        off
+    listening   green      the button is down, audio is being captured
+    thinking    amber      released; speech-to-text, the checks and the answer are running
+    speaking    blue       the answer is being played
+    error       red        something failed and the child heard an error sound
+    idle        dim white  on and ready for a press
 """
 
 from __future__ import annotations

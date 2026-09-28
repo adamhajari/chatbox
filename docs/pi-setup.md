@@ -285,8 +285,9 @@ Now start it:
 .venv/bin/chatbox talk -v
 ```
 
-Hold the button, ask a question, let go. The light goes green while listening, amber
-while thinking, and blue while speaking.
+Once it's ready the light glows a dim white. Hold the button, ask a question, let go.
+The light goes green while listening, amber while thinking, and blue while speaking, then
+back to dim white.
 
 | What you see | What it means |
 |---|---|

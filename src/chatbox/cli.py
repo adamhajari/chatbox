@@ -255,6 +255,7 @@ def cmd_talk(args, settings) -> None:
                     sys.exit(f"Button: {e}")
             press = AnyPress(sources)
             mic = PushToTalkMic(press, speaker, ptt_settings)
+            light.show("idle")      # dim white: ready for a press
             print(f"Hold {press.name} and talk.\n")
             while True:
                 command = press.poll_command(None)

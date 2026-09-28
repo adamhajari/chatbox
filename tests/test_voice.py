@@ -817,6 +817,8 @@ def test_rgb_led_maps_states_to_channels():
     assert led.value == (0, 1, 0)
     light.show("thinking")
     assert led.value == (1, 1, 0)          # amber: red and green together
+    light.show("idle")
+    assert led.value == (0.15, 0.15, 0.15)  # dim white: on and ready
     light.show("something new")            # unknown states go dark, never raise
     assert led.value == (0, 0, 0)
     light.close()

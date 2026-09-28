@@ -87,9 +87,11 @@ class RgbLed:
     setting rather than a constant because a replacement LED may well be the other type.
     """
 
-    # Full-on channels per state; no PWM, so there is no software timing to go wrong.
-    COLOURS: dict[str, tuple[int, int, int]] = {
-        "idle": (0, 0, 0),
+    # Brightness per channel, 0 to 1. The active states are full-on colours; idle is a
+    # dim white that says "on and ready" without lighting up a room for hours, which is
+    # the one reason the pins run PWM rather than plain on/off.
+    COLOURS: dict[str, tuple[float, float, float]] = {
+        "idle": (0.15, 0.15, 0.15),  # dim white: ready
         "listening": (0, 1, 0),   # green
         "thinking": (1, 1, 0),    # amber
         "speaking": (0, 0, 1),    # blue
@@ -109,7 +111,7 @@ class RgbLed:
                 ) from e
             try:
                 led = RGBLED(red=red, green=green, blue=blue,
-                             active_high=not common_anode, pwm=False)
+                             active_high=not common_anode, pwm=True)
             except Exception as e:
                 raise RuntimeError(
                     f"couldn't open GPIO{red}/{green}/{blue} for the status light ({e}). "
