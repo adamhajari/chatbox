@@ -317,18 +317,75 @@ Two things to know:
 
 - **The page has no password.** Anyone on your home network can change what Chatbox will
   talk about. Requests from outside your local network are refused, but that's all.
-- **Nothing starts at boot.** You SSH in and start Chatbox by hand, and closing the SSH
-  session stops it. To keep it running after you disconnect, start it inside `tmux`:
-  ```sh
-  sudo apt install -y tmux
-  tmux new -s chatbox           # run chatbox in here; Ctrl-B then D to detach
-  tmux attach -t chatbox        # come back to it
-  ```
+- **Started by hand, it stops when you disconnect.** Closing the SSH session stops it.
+  Step 10 makes it start at boot instead.
 
 **If the phone can't reach it:** check the phone is on the same Wi-Fi (not cellular, and
 not a guest network: guest networks block devices from reaching each other, which is the
 usual cause). `curl -sI http://127.0.0.1:8321/` on the Pi tells you whether the server
 is up or the network is in the way.
+
+---
+
+## 10. Start Chatbox at boot
+
+Once the button works (step 8), systemd can start Chatbox whenever the Pi powers on.
+Started this way it has no terminal, so the button is the only control: there's no
+spacebar, `n` or `q`. Without `button_gpio` set it refuses to start.
+
+Create the service with `sudo nano /etc/systemd/system/chatbox.service` and paste this in,
+replacing `<user>` (three places) with your username:
+
+```ini
+[Unit]
+Description=Chatbox
+Wants=network-online.target
+After=network-online.target sound.target
+
+[Service]
+User=<user>
+WorkingDirectory=/home/<user>/chatbox
+ExecStart=/home/<user>/chatbox/.venv/bin/chatbox talk --web
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+```
+
+`WorkingDirectory` matters: Chatbox finds `chatbox.toml`, `.env` and the policies from
+the folder it starts in. Drop `--web` if the settings page shouldn't always be running.
+
+Turn it on, then reboot to check:
+```sh
+sudo systemctl daemon-reload
+sudo systemctl enable --now chatbox
+sudo reboot
+```
+
+**Verify:** after the reboot the light glows dim white, and a button press gets an
+answer. `systemctl status chatbox` says `active (running)`.
+
+What it printed, including each question and answer, is in the journal:
+```sh
+journalctl -u chatbox -b              # since this boot
+journalctl -u chatbox -f              # follow it live; Ctrl-C to stop
+```
+
+**To run it by hand** (to use `-v`, or the spacebar), stop the service first. Two copies
+can't share the button, the mic or the settings page's port:
+```sh
+sudo systemctl stop chatbox
+.venv/bin/chatbox talk -v
+sudo systemctl start chatbox          # when you're done
+```
+
+| What you see | What it means |
+|---|---|
+| `active (activating)` and the journal repeats the same error every 5 seconds | Chatbox is exiting at startup; the error says why. It's usually the same as running it by hand would show (step 8's table) |
+| `needs an interactive terminal … or a button` | `button_gpio` isn't set in `chatbox.local.toml` |
+| `couldn't open GPIO17` | another copy is running: something started by hand, or in `tmux` |
+| `Failed to determine user credentials` | `<user>` in the service file wasn't replaced with your username |
 
 ---
 
@@ -338,6 +395,7 @@ is up or the network is in the way.
 cd ~/chatbox
 git pull
 .venv/bin/pip install -e .
+sudo systemctl restart chatbox        # if it starts at boot (step 10)
 ```
 
 Your `.env`, `chatbox.local.toml` and conversation data aren't part of the repo, so

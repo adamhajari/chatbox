@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import signal
 import sys
+from contextlib import nullcontext
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -190,11 +192,14 @@ def cmd_talk(args, settings) -> None:
     from chatbox.speech import make_stt, make_tts
     from chatbox.voice import VoiceSettings, VoiceTurn
 
-    if not sys.stdin.isatty():
-        sys.exit("chatbox talk needs an interactive terminal (it listens for the spacebar)")
     if settings.speech is None:
         sys.exit("chatbox.toml has no [speech] section (see README: voice setup)")
     sp = settings.speech
+    # With no terminal (started at boot by systemd) the button is the only way to talk.
+    has_terminal = sys.stdin.isatty()
+    if not has_terminal and sp.voice.get("button_gpio") is None:
+        sys.exit("chatbox talk needs an interactive terminal (it listens for the spacebar), "
+                 "or a button: set button_gpio under [voice]")
     problem = audio_device_problem(sp.voice.get("input_device"),
                                    sp.voice.get("output_device"))
     if problem:
@@ -240,12 +245,22 @@ def cmd_talk(args, settings) -> None:
     print(f"Speech: {stt.name}/{stt.model} → text → {tts.name}/{tts.voice}. "
           f"Output check {'on' if g.output_check.enabled else 'OFF'}. "
           f"Logging is {'on' if log else 'off'}; no audio is stored.")
-    print("Let go to send. 'n' starts a fresh session, 'q' quits.")
+    if has_terminal:
+        print("Let go to send. 'n' starts a fresh session, 'q' quits.")
+    else:
+        # Line-buffered, so each exchange reaches the journal as it happens.
+        sys.stdout.reconfigure(line_buffering=True)
+        print("No terminal, so the button is the only control. "
+              "Stop it with: sudo systemctl stop chatbox")
     _note_local_config(settings)
+    # systemd stops a service with SIGTERM; exit through `finally` so the logs close.
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
     try:
-        with Keyboard() as kb:
-            sources = [KeyboardPress(kb, ptt_settings.key_repeat_wait_seconds,
-                                     ptt_settings.release_gap_seconds)]
+        with (Keyboard() if has_terminal else nullcontext()) as kb:
+            sources = []
+            if kb is not None:
+                sources.append(KeyboardPress(kb, ptt_settings.key_repeat_wait_seconds,
+                                             ptt_settings.release_gap_seconds))
             if ptt_settings.button_gpio is not None:
                 from chatbox.audio.pi import ButtonPress
 
