@@ -165,24 +165,67 @@ the output is bridge-tied, and grounding one side shorts the amplifier.
 
 ### Enabling it
 
-Two edits to `/boot/firmware/config.txt`, one changed line and one new one:
+Two edits to the Pi's boot config, one changed line and one new one. It belongs to
+root, so it has to be opened with `sudo`. Without it, nano opens the file but can't
+save it.
 
-1. **Change** the existing `dtparam=audio=on` line, near the top of the file, to:
+1. **Open the file:**
+
+   ```sh
+   sudo nano /boot/firmware/config.txt
+   ```
+
+   It must be `/boot/firmware/config.txt`. Raspberry Pi OS also has a
+   `/boot/config.txt`, and edits there do nothing.
+
+2. **Change** the existing `dtparam=audio=on` line, near the top of the file, to:
 
    ```
    dtparam=audio=off
    ```
 
-2. **Add** this line at the end of the file, after the `[all]` line:
+   To find it, press **Ctrl+W**, type `audio=on` and press **Enter**.
+
+3. **Add** this line on its own at the very end of the file, after the `[all]` line:
 
    ```
    dtoverlay=hifiberry-dac
    ```
 
-Then reboot. **This disables the 3.5 mm headphone jack**, which is PWM-driven and gives
-way to the I2S device. The headphones stop working the moment the speaker starts. To
-get them back, set `dtparam=audio=on` again, comment out the `dtoverlay` line, and
-reboot.
+   **Alt+/** jumps to the end. If the line ends up above a `[cm4]` or `[pi4]` header,
+   it only applies to that board and the Pi 3B ignores it.
+
+4. **Save and leave nano:** **Ctrl+O**, **Enter** to keep the file name, then
+   **Ctrl+X**.
+
+5. **Check both edits took:**
+
+   ```sh
+   grep -nE 'audio|hifiberry' /boot/firmware/config.txt
+   ```
+
+   Expect `dtparam=audio=off` and, as the last match, `dtoverlay=hifiberry-dac`.
+
+6. **Reboot**, which also needs `sudo`. The SSH session drops; wait a minute and
+   reconnect:
+
+   ```sh
+   sudo reboot
+   ```
+
+7. **Check the card exists:**
+
+   ```sh
+   cat /proc/asound/cards
+   ```
+
+   Expect a line with `[sndrpihifiberry]`. Without it, the `default` device in the
+   Volume steps below can't open, and Chatbox reports that *both* the mic and the speaker
+   are missing (the mic too, because `default` covers both).
+
+**This disables the 3.5 mm headphone jack**, which is PWM-driven and gives way to the
+I2S device. The headphones stop working the moment the speaker starts. To get them back,
+set `dtparam=audio=on` again, put a `#` in front of the `dtoverlay` line, and reboot.
 
 ### Verifying it
 
