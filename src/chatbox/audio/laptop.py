@@ -40,7 +40,7 @@ class PushToTalkSettings:
     button_gpio: int | None = None
     # GPIO pins of the status LED as [red, green, blue]. None = no light.
     led_gpio: list[int] | None = None
-    led_common_anode: bool = True   # long leg to 3V3; False = common cathode (to GND)
+    led_common_anode: bool = False  # False = common pin to GND (the KY-016); True = to 3V3
 
 
 class HoldDetector:

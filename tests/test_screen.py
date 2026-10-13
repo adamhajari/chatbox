@@ -35,7 +35,7 @@ def png_bytes(size=(400, 300), colour=(10, 120, 200)) -> bytes:
 # ---- fakes -------------------------------------------------------------------------
 
 class FakeDisplay:
-    """Stands in for the ILI9341 panel."""
+    """Stands in for the ST7789 panel."""
 
     def __init__(self, fail=False):
         self.shown, self.blanks, self.closed, self.fail = [], 0, False, fail
@@ -928,7 +928,7 @@ def test_a_local_file_turns_the_screen_on(tmp_path):
     screen = load_settings(tmp_path / "chatbox.toml").screen
     assert screen is not None
     assert screen.timeout_seconds == 2
-    assert (screen.dc_gpio, screen.reset_gpio, screen.cs) == (25, 27, 0)  # from chatbox.toml
+    assert (screen.dc_gpio, screen.reset_gpio, screen.cs) == (25, None, 0)  # from chatbox.toml
     assert screen.rotation == 90   # landscape
     assert screen.cache_dir is None
     assert screen.swap_seconds == 3

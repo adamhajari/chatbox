@@ -80,11 +80,12 @@ class ButtonPress:
 
 
 class RgbLed:
-    """A 5 mm RGB LED on three GPIO pins (docs/hardware.md).
+    """An RGB LED on three GPIO pins: a KY-016 module on this build (docs/hardware.md).
 
-    `common_anode` describes how the LED is wired: the long leg to 3V3 (common anode,
-    a low pin lights it) or to ground (common cathode, a high pin lights it). It is a
-    setting rather than a constant because a replacement LED may well be the other type.
+    `common_anode` describes how the LED is wired: the common pin to 3V3 (common anode,
+    a low pin lights it) or to ground (common cathode, a high pin lights it). The KY-016
+    is common cathode. It is a setting rather than a constant because a replacement LED
+    may well be the other type.
     """
 
     # Brightness per channel, 0 to 1. The active states are full-on colours; idle is a
@@ -99,7 +100,7 @@ class RgbLed:
     }
 
     def __init__(self, red: int = 22, green: int = 23, blue: int = 24,
-                 common_anode: bool = True, led=None) -> None:
+                 common_anode: bool = False, led=None) -> None:
         if led is None:
             try:
                 from gpiozero import RGBLED
@@ -140,7 +141,7 @@ def image_size(rotation: int) -> tuple[int, int]:
 
 
 class Screen:
-    """The 2.2" SPI display (ILI9341, 240x320) on hardware SPI0 (docs/hardware.md).
+    """The 2.0" SPI display (ST7789, 240x320 IPS) on hardware SPI0 (docs/hardware.md).
 
     Same shape as the button and the LED above: `adafruit_circuitpython_rgb_display`
     and Blinka are imported lazily, so a laptop and the test suite never need them,
@@ -171,7 +172,7 @@ class Screen:
     # the glass.
     WIDTH, HEIGHT = 240, 320
 
-    def __init__(self, dc: int = 25, reset: int = 27, cs: int = 0, baudrate: int = 24_000_000,
+    def __init__(self, dc: int = 25, reset: int | None = None, cs: int = 0, baudrate: int = 24_000_000,
                  rotation: int = 90, backlight_gpio: int | None = None,
                  backlight_active_high: bool = True, display=None, backlight=None) -> None:
         if display is None:
@@ -188,12 +189,12 @@ class Screen:
         return image_size(self.rotation)
 
     @staticmethod
-    def _open(dc: int, reset: int, cs: int, baudrate: int, rotation: int):
+    def _open(dc: int, reset: int | None, cs: int, baudrate: int, rotation: int):
         try:
             import board
             import busio
             import digitalio
-            from adafruit_rgb_display import ili9341
+            from adafruit_rgb_display import st7789
         except ImportError as e:
             raise RuntimeError(
                 "the screen needs Blinka and the display driver. On the Pi:\n"
@@ -207,15 +208,16 @@ class Screen:
 
         try:
             spi = busio.SPI(clock=board.SCK, MOSI=board.MOSI)
-            return ili9341.ILI9341(
-                spi, cs=pin(8 if cs == 0 else 7), dc=pin(dc), rst=pin(reset),
+            return st7789.ST7789(
+                spi, cs=pin(8 if cs == 0 else 7), dc=pin(dc),
+                rst=None if reset is None else pin(reset),
                 baudrate=baudrate, width=Screen.WIDTH, height=Screen.HEIGHT,
                 rotation=rotation,
             )
         except Exception as e:
             raise RuntimeError(
-                f"couldn't open the display on SPI0 CE{cs} with D/C on GPIO{dc} and RESET "
-                f"on GPIO{reset} ({e}). Check SPI is enabled (`ls /dev/spidev*` should "
+                f"couldn't open the display on SPI0 CE{cs} with D/C on GPIO{dc}"
+                f"{'' if reset is None else f' and RESET on GPIO{reset}'} ({e}). Check SPI is enabled (`ls /dev/spidev*` should "
                 "list something), the pins in chatbox.toml, and that your user is in the "
                 "spi group. `scripts/screen_check.py` tests the wiring on its own."
             ) from e

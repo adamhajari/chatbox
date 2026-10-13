@@ -421,7 +421,7 @@ question to first audio, which should stay under 5,000 ms).
 
 ## The screen (Pi only)
 
-A 2.2" SPI display showing a picture of what was asked about while Chatbox answers.
+A 2.0" SPI display showing a picture of what was asked about while Chatbox answers.
 **Pictures only, never text** — young children may not read yet, so the
 screen supplements the spoken answer and is never needed to understand it. The exception
 is [the reading game](#the-reading-game): its word stays on the screen for the whole game,
@@ -465,7 +465,8 @@ classifier (already running) ─▶ subject + category ─▶ Wikipedia article'
   every one of them means no picture and an identical spoken answer.
 - **Blocked and redirected questions show nothing.** Only an "allow" starts a lookup.
 - **Between turns the screen is blank**, and with `backlight_gpio` set the backlight
-  goes out with it, so it's genuinely dark rather than a lit grey rectangle.
+  goes out with it, so it's genuinely dark rather than a lit grey rectangle. The
+  current ST7789 board has no backlight pin, so on it a blank screen is black but lit.
 - **`chatbox chat` uses it too**, not just `chatbox talk`: the picture goes up with the
   printed answer and comes down when the next question is typed. That is the only way
   to see a whole turn on a Pi without a microphone and speaker. It appears
@@ -490,7 +491,7 @@ on the Pi; `chatbox.toml` documents them and ships with `enabled = false`.
 | Setting | Meaning |
 |---|---|
 | `[screen] enabled` | `false`, or no `[screen]` section, means no screen: nothing imported, no pin opened, no picture fetched. |
-| `[screen] dc_gpio`, `reset_gpio`, `cs` | D/C and RESET pins, and which SPI0 chip select (0 = CE0). |
+| `[screen] dc_gpio`, `reset_gpio`, `cs` | D/C pin, RESET pin (unset by default: the ST7789 board has none, so it's reset over SPI), and which SPI0 chip select (0 = CE0). |
 | `[screen] baudrate` | SPI clock. Drop to `16000000` if the picture is noisy or torn. |
 | `[screen] rotation` | `0`, `90`, `180` or `270`, if the panel is mounted the other way up. |
 | `[screen] backlight_gpio` | The backlight's pin, so a blank screen is genuinely dark. Unset = wired to 3V3 and always on. |

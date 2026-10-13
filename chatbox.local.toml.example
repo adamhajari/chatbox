@@ -11,6 +11,7 @@
 [voice]
 # button_gpio = 17
 # led_gpio = [22, 23, 24]
+# Only for an LED whose common pin goes to 3V3 (the KY-016's goes to GND):
 # led_common_anode = true
 # Audio devices, if the system default is wrong. Use a name from
 # `scripts/mic_check.py` or `python -m sounddevice` on THIS machine -- the names differ
@@ -26,7 +27,7 @@
 # 90/270 = landscape (the default), 0/180 = portrait. Use whichever matches how the
 # panel ended up in the enclosure -- screen_check.py's blue square marks the top left.
 # rotation = 90
-# The backlight pin, if it's on a GPIO rather than 3V3 (docs/hardware.md).
+# The backlight pin, for a panel that has one (the ST7789 board doesn't).
 # backlight_gpio = 12
 # backlight_active_high = true
 

@@ -148,13 +148,14 @@ sample_rate = 16000
 key_repeat_wait_seconds = 0.6
 release_gap_seconds = 0.2
 # The Pi's button and status LED (docs/hardware.md). These are per-machine, so set them
-# in chatbox.local.toml rather than here: button_gpio = 17, led_gpio = [22, 23, 24],
-# led_common_anode = true. Unset means spacebar only and no light.
+# in chatbox.local.toml rather than here: button_gpio = 17, led_gpio = [22, 23, 24].
+# Unset means spacebar only and no light. led_common_anode = true is only for an LED
+# whose common pin goes to 3V3; the KY-016 module's goes to GND (the default).
 # Audio devices by name or number (python -m sounddevice lists them); omit for defaults.
 # input_device = "MacBook Pro Microphone"
 # output_device = "MacBook Pro Speakers"
 
-# The picture screen: a 2.2" SPI display (ILI9341, 240x320) showing a picture of what
+# The picture screen: a 2.0" SPI display (ST7789, 240x320) showing a picture of what
 # was asked about while Chatbox speaks (PLAN.md D28/D29, docs/hardware.md). Pictures
 # only, never text. The subject and its category come from the guardrail classifier,
 # and the picture is the lead image of the Wikipedia article for both ("python animal").
@@ -171,10 +172,12 @@ release_gap_seconds = 0.2
 # false (or no [screen] section at all) means no screen: nothing is imported, no pin is
 # opened and no picture is ever fetched.
 enabled = false
-# D/C and RESET. SPI0 supplies CS/SCK/MOSI on GPIO8/11/10; cs = 1 uses CE1 (GPIO7).
+# D/C. SPI0 supplies CS/SCK/MOSI on GPIO8/11/10; cs = 1 uses CE1 (GPIO7).
 dc_gpio = 25
-reset_gpio = 27
 cs = 0
+# The ST7789 board has no RES pin, so the driver resets it over SPI. A panel that has one
+# can name its GPIO here (27 was reserved for it).
+# reset_gpio = 27
 # SPI clock. Drop to 16000000 if the picture comes up with noise or torn lines.
 baudrate = 24000000
 # Which way up the panel is mounted. 90 and 270 are landscape (320x240), which is what
@@ -183,7 +186,8 @@ baudrate = 24000000
 # Pictures are sized to match, so changing this changes their shape too.
 rotation = 90
 # The backlight on a GPIO, so that a blank screen is genuinely dark rather than a lit
-# grey rectangle. Unset means the display's LED pin is wired to 3V3 and always on.
+# grey rectangle. Unset means the backlight is always on: the ST7789 board has no BL
+# pin, so on this build it stays unset.
 # backlight_active_high = false for a P-MOSFET high-side switch (GPIO low = lit).
 # backlight_gpio = 12
 backlight_active_high = true

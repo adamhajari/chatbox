@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Prove the 2.2" SPI display is wired correctly, before any feature work.
+"""Prove the 2.0" ST7789 SPI display is wired correctly, before any feature work.
 
 Chatbox's own screen adapter is separate; this only exercises the panel, so the wiring
 can be checked on its own. Run it on the Pi:
 
     .venv/bin/python scripts/screen_check.py
-    .venv/bin/python scripts/screen_check.py --dc 25 --reset 27 --cs 0
+    .venv/bin/python scripts/screen_check.py --dc 25 --cs 0
     .venv/bin/python scripts/screen_check.py --rotation 180 --baudrate 16000000
     .venv/bin/python scripts/screen_check.py --image some-photo.jpg
     .venv/bin/python scripts/screen_check.py --backlight 12     # also blink the backlight
@@ -15,7 +15,7 @@ SCK GPIO11, MOSI GPIO10) plus D/C on GPIO25 and RESET on GPIO27, chosen to leave
 GPIO17 (button), GPIO22/23/24 (status LED) and GPIO18/19/21 (the amplifier's I2S
 lines) alone. VCC goes to 3V3 — not 5 V.
 
-The display's LED pin is the backlight. Wired to 3V3 it is simply always on; on a GPIO
+The display's BL pin is the backlight. Wired to 3V3 it is simply always on; on a GPIO
 (GPIO12 in this build) `--backlight 12` blinks it, so the pin can be proved before
 Chatbox relies on it. `--backlight-active-low` is for a P-MOSFET high-side switch,
 where the pin lights the backlight by going low.
@@ -49,7 +49,7 @@ FAILURES = """
 What each failure looks like:
 
   nothing at all, backlight dark      the backlight isn't being fed. Check VCC reaches
-                                      3V3 and GND a ground pin, and either that LED
+                                      3V3 and GND a ground pin, and either that BL
                                       reaches 3V3 or that --backlight names its pin.
   backlight on, screen stays white    the panel is powered but not being driven: D/C,
                                       RESET, MOSI or SCK is wrong or loose, or SPI is
@@ -60,8 +60,10 @@ What each failure looks like:
                                       pip install adafruit-blinka
                                       adafruit-circuitpython-rgb-display pillow
   permission denied on /dev/spidev0.0 sudo usermod -aG spi $USER, log out and back in.
-  colours named wrong (red shows      an ILI9341 clone with BGR order. Harmless for
-  blue and vice versa)                photos; say so and we'll set the driver's flag.
+  colours named wrong (red shows      the panel wants BGR order. Harmless for photos;
+  blue and vice versa)                say so and we'll set the driver's flag.
+  colours inverted (white shows       the panel doesn't want the driver's colour
+  black, red shows cyan)              inversion. Say so and we'll turn it off.
   noise, torn lines, flickering       SPI too fast or the wires too long: re-run with
                                       --baudrate 16000000, and keep leads short.
   the picture is upside down or        the panel is mounted the other way up: find the
@@ -79,7 +81,7 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--dc", type=int, default=25, help="data/command pin (GPIO)")
-    ap.add_argument("--reset", type=int, default=27, help="RESET pin (GPIO)")
+    ap.add_argument("--reset", type=int, help="RES pin (GPIO), if the board has one")
     ap.add_argument("--cs", type=int, choices=(0, 1), default=0, help="SPI0 chip select")
     ap.add_argument("--baudrate", type=int, default=24_000_000)
     ap.add_argument("--rotation", type=int, choices=(0, 90, 180, 270), default=90,
@@ -96,7 +98,7 @@ def main() -> None:
         import board
         import busio
         import digitalio
-        from adafruit_rgb_display import ili9341
+        from adafruit_rgb_display import st7789
         from PIL import Image, ImageDraw
     except ImportError as e:
         sys.exit(f"A library is missing ({e}). On the Pi:\n"
@@ -115,8 +117,9 @@ def main() -> None:
 
     try:
         spi = busio.SPI(clock=board.SCK, MOSI=board.MOSI)
-        display = ili9341.ILI9341(
-            spi, cs=pin(8 if args.cs == 0 else 7), dc=pin(args.dc), rst=pin(args.reset),
+        display = st7789.ST7789(
+            spi, cs=pin(8 if args.cs == 0 else 7), dc=pin(args.dc),
+            rst=None if args.reset is None else pin(args.reset),
             baudrate=args.baudrate, width=PANEL_WIDTH, height=PANEL_HEIGHT,
             rotation=args.rotation,
         )
@@ -142,7 +145,8 @@ def main() -> None:
 
     light = "3V3 (always on)" if backlight is None else (
         f"GPIO{args.backlight} ({'active low' if args.backlight_active_low else 'active high'})")
-    print(f"SPI0 CE{args.cs} · D/C GPIO{args.dc} · RESET GPIO{args.reset} · "
+    reset = "software" if args.reset is None else f"GPIO{args.reset}"
+    print(f"SPI0 CE{args.cs} · D/C GPIO{args.dc} · RESET {reset} · "
           f"{args.baudrate / 1e6:g} MHz · rotation {args.rotation} "
           f"({WIDTH}x{HEIGHT}, {'landscape' if WIDTH > HEIGHT else 'portrait'}) · "
           f"backlight {light}\n")

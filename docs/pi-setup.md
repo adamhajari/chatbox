@@ -274,7 +274,6 @@ Uncomment the `[voice]` lines for the button and light, and add the audio device
 [voice]
 button_gpio = 17
 led_gpio = [22, 23, 24]
-led_common_anode = true
 input_device = "default"
 output_device = "default"
 ```

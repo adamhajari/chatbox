@@ -95,8 +95,10 @@ def main() -> None:
                      "on its own.")
         light = ("3V3, always on" if screen_settings.backlight_gpio is None
                  else f"GPIO{screen_settings.backlight_gpio}")
-        print(f"screen: D/C GPIO{screen_settings.dc_gpio} · RESET "
-              f"GPIO{screen_settings.reset_gpio} · backlight {light}")
+        reset = ("software" if screen_settings.reset_gpio is None
+                 else f"GPIO{screen_settings.reset_gpio}")
+        print(f"screen: D/C GPIO{screen_settings.dc_gpio} · RESET {reset} · "
+              f"backlight {light}")
 
     cache = screen_settings.cache_dir or settings.database_path.parent / "pictures"
     from chatbox.audio.pi import image_size

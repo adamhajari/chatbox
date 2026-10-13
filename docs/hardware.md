@@ -1,9 +1,9 @@
 # Chatbox hardware wiring
 
 The button, status light, amplifier and speaker, microphone and picture screen for the
-Raspberry Pi build. The button and LED were wired and verified on 2026-09-22, and the
-amplifier, speaker and USB microphone on 2026-09-23. The screen's pinout was chosen on
-2026-09-23 and is **not yet verified on the bench** (see "Verifying it").
+Raspberry Pi build. The amplifier, speaker and USB microphone were wired and verified on
+2026-09-23. The button, status light and screen were replaced on 2026-10-13 with the
+parts below, and **none of the three is verified on the bench yet** (see "Verifying it").
 
 For getting the software onto the Pi in the first place, see
 [pi-setup.md](pi-setup.md).
@@ -16,17 +16,16 @@ For getting the software onto the Pi in the first place, see
 |---|---|---|
 | Computer | Raspberry Pi 3 Model B v1.2 (1 GB) | — |
 | Power supply | 5 V, 2.5 A micro-USB | micro-USB |
-| Push-to-talk button | Philmore 30-781 SPDT arcade button, 28.5 mm hole | GPIO |
-| Status light | 5 mm common-anode RGB LED, with three 220 Ω resistors | GPIO |
+| Push-to-talk button | [30 mm translucent arcade button with LED](https://www.pishop.us/product/arcade-button-with-led-30mm-translucent/) (Adafruit's design), 30 mm hole | GPIO |
+| Status light | [KY-016 RGB LED module](https://www.amazon.com/dp/B0F1FB3DS5), common cathode | GPIO |
 | Amplifier | NULLLAB MAX98357A I2S amplifier, from the amp & speaker kit | GPIO (I2S) |
 | Speaker | the kit's own small 4 Ω, 3 W speaker | amplifier speaker output |
 | Microphone | SuziePi USB 2.0 mini microphone | USB |
-| Picture screen | 2.2" 240×320 SPI TFT, ILI9341 controller (red PCB) | GPIO (SPI) |
+| Picture screen | [NULLLAB 2.0" 240×320 IPS TFT](https://www.amazon.com/dp/B0GVF8R5ZL), ST7789 controller | GPIO (SPI) |
 
-Wiring is female-to-female DuPont jumpers, cut and soldered at the component end (see
-"Assembling it"), plus 2.8 mm push-on spade connectors for the button. The screen may
-also need a P-MOSFET to switch its backlight, depending on the current it draws (see
-"The screen").
+Wiring is female-to-female DuPont jumpers: straight onto the header pins of the LED
+module and the screen, and 2.8 mm push-on spade connectors for the button (see
+"Assembling it").
 
 ---
 
@@ -43,37 +42,36 @@ Image: [Raspberry Pi documentation](https://www.raspberrypi.com/documentation/co
 
 | Signal | GPIO | Physical pin | Goes to |
 |---|---|---|---|
-| Button | GPIO17 | 11 | arcade button **C** (common) |
-| Button return | — | 9 (GND) | arcade button **NO** (normally open) |
-| LED red | GPIO22 | 15 | 220 Ω → red leg |
-| LED green | GPIO23 | 16 | 220 Ω → green leg |
-| LED blue | GPIO24 | 18 | 220 Ω → blue leg |
-| LED common | — | 1 (3V3) | long leg, **no resistor** |
+| Button | GPIO17 | 11 | either switch terminal |
+| Button return | — | 9 (GND) | the other switch terminal |
+| LED red | GPIO22 | 15 | module **R** |
+| LED green | GPIO23 | 16 | module **G** |
+| LED blue | GPIO24 | 18 | module **B** |
+| LED common | — | 14 (GND) | module **−** (common cathode) |
 | Amp VIN | — | 2 (5V) | MAX98357A VIN, **5 V, not 3.3 V** |
 | Amp GND | — | 6 (GND) | MAX98357A GND |
 | Amp BCLK | GPIO18 | 12 | I2S bit clock |
 | Amp LRC | GPIO19 | 35 | I2S word select |
 | Amp DIN | GPIO21 | 40 | I2S data |
-| Screen VCC | — | 17 (3V3) | **3.3 V, not 5 V** |
+| Screen VCC | — | 17 (3V3) | 3.3 V, so the panel's logic matches the Pi's |
 | Screen GND | — | 20 (GND) | |
 | Screen CS | GPIO8 (CE0) | 24 | hardware SPI0 |
-| Screen SCK | GPIO11 | 23 | hardware SPI0 |
-| Screen SDI (MOSI) | GPIO10 | 19 | hardware SPI0 |
-| Screen SDO (MISO) | — | — | leave unconnected: nothing is read back |
-| Screen D/C | GPIO25 | 22 | |
-| Screen RESET | GPIO27 | 13 | |
-| Screen LED | GPIO12 | 32 | backlight, switched (see below) |
+| Screen SCL (SCK) | GPIO11 | 23 | hardware SPI0 |
+| Screen SDA (MOSI) | GPIO10 | 19 | hardware SPI0 |
+| Screen DC | GPIO25 | 22 | |
 
-**The backlight is on a GPIO**, not on 3V3. Filling the panel black still leaves a lit
-grey rectangle, which is no good in a bedroom, and there are only two 3V3 pins (1 and
-17) for three things that want 3.3 V. GPIO12 also solves that: pin 1 keeps the status
-LED's common leg and pin 17 takes the screen's VCC.
+The button's two lamp terminals are left unconnected: the LED
+module is the status light (see "The button").
 
-GPIO12 was chosen over the other free pins because it is one of the two hardware-PWM
-pins that don't collide with the amplifier's I2S lines (the other is GPIO13), so
-dimming or fading the backlight stays possible later. GPIO7 (pin 26) would have been
-tidier to wire, but it is SPI0's CE1 and the default SPI overlay claims it; freeing it
-needs `dtoverlay=spi0-1cs` and gives up hardware PWM.
+ST7789 modules label their pins in I2C style: **SCL** is the SPI clock and **SDA** is
+MOSI. It's still SPI. There's no MISO pin, and nothing is read back from the panel.
+
+The board has six pins: GND, VCC, SCL, SDA, DC and CS. **There is no RES and no BL**:
+the driver resets the panel over SPI instead, and the backlight is on whenever the
+board has power (see "The screen"). GPIO27 and GPIO12 were reserved for those two on the
+previous panel and are free now. GPIO12 stays the pick for a switched backlight if a
+later panel has a BL pin: it's one of the two hardware-PWM pins that don't collide with
+the amplifier's I2S lines (the other is GPIO13).
 
 **GPIO18, GPIO19 and GPIO21 belong to the amplifier's I2S bus** — don't reuse them. The
 button, LED and screen pins were chosen to keep them free. Note that GPIO19 and GPIO21
@@ -85,27 +83,31 @@ The microphone is USB, so it takes no header pins.
 
 ## The LED
 
-A 5 mm **common-anode** RGB LED: the long leg goes to **3V3**, and a GPIO pulled **low**
-lights that colour. (Common-cathode parts exist and work the other way round — long leg
-to GND, GPIO high to light. Check yours before wiring: put 220 Ω from 3V3 to a short leg
-and touch the long leg to GND. If it lights, it's common cathode.)
+A KY-016 module: a 5 mm RGB LED on a small board with a four-pin header, marked **R**,
+**G**, **B** and **−**. It is **common cathode**: **−** goes to **GND**, and a GPIO driven
+**high** lights that colour. That's the default (`led_common_anode` unset or `false`).
+The pin order differs between makers of this board, so wire by the printed labels, not
+by position.
 
-![RGB LED wiring: the common anode leg straight to 3V3 (pin 1); red, green and blue each through 220 Ω to GPIO22, GPIO23 and GPIO24 (pins 15, 16, 18)](images/rgb-led.svg)
+![KY-016 wiring: the module's − pin to GND (pin 14); R, G and B straight to GPIO22, GPIO23 and GPIO24 (pins 15, 16, 18)](images/rgb-led.svg)
 
-`gpiozero` handles the inversion with `active_high=False`, so the only difference in code
-is that one flag. **The adapter has to carry it as a setting**, not a constant — a
-replacement LED may well be the other type.
+The common pin goes to ground, not 3V3, so nothing on the board ever sees 5 V and a
+wiring slip can't push current back into a GPIO. `gpiozero` handles either polarity
+with its `active_high` flag. **The adapter carries it as a setting**, not a constant:
+the previous LED was common anode, and a replacement may be too. For one of those, set
+`led_common_anode = true` and move its common pin to 3V3.
 
-**One 220 Ω resistor per colour leg, none on the common leg.** A single resistor on the
-shared common leg would dim every colour whenever a second one came on, so "thinking"
-(red + green) would be dimmer than "listening" (green alone) — the opposite of a signal a
-child can read at a glance.
+**Check the board for resistors before wiring.** Some KY-016 boards carry three small
+surface-mount resistors beside the LED, and some carry none. With none, a GPIO drives
+the LED with nothing to limit the current. Put one resistor in each of the R, G and B
+wires: about 180 Ω for red and 100 Ω for green and blue at 3.3 V. Never put a single
+resistor on the shared **−** wire. It would dim every colour whenever a second one came
+on, so "thinking" (red + green) would look dimmer than "listening" (green alone).
 
-220 Ω on all three was measured bright enough on this LED at 3.3 V. That isn't guaranteed
-for every part: green and blue have a forward voltage near 3 V, so with only 0.3 V across
-the resistor they can come out dim or dark. If a future LED looks red-dominated, drop
-green and blue to about 100 Ω. Don't raise the supply to 5 V to fix brightness — with the
-GPIO low that pushes 5 V through the resistor into a 3.3 V pin.
+At 3.3 V, green and blue have a forward voltage near 3 V, so the board's own resistors
+may leave them dim next to red. If amber looks orange-red, or idle white looks pink,
+that's why. A fix in code (scaling down red in `RgbLed.COLOURS`) is better than swapping
+the board's resistors.
 
 ### States
 
@@ -120,9 +122,18 @@ GPIO low that pushes 5 V through the resistor into a 3.3 V pin.
 
 ## The button
 
-A Philmore SPDT arcade button, 28.5 mm hole. Only two of its three terminals are used:
-**C** to GPIO17 and **NO** to ground. **NC** stays unconnected. The button's own lamp
-isn't used — the RGB LED above is the status light.
+A 30 mm translucent arcade button with a built-in lamp, Adafruit's design, sold by
+PiShop. It needs a 30 mm hole and screws into panels up to about 20 mm thick. It has four
+terminals on the back. The two **bare copper tabs** going into the grey micro-switch
+body are the switch. The two tabs sitting in **small grey holders** on the other side
+are the lamp. The switch tabs are interchangeable: one to GPIO17, the other to ground.
+Picking the lamp pair by mistake is harmless: the button just never registers a press.
+
+**The lamp isn't used**, and its terminals stay unconnected; the LED
+module above is the status light. Should it be wanted later: the lamp is two LEDs with
+their own resistor, rated 5 V at 10 mA. On 3.3 V it still lights, dimly, at about 2 mA,
+which a GPIO can supply directly (**+** to a free GPIO, **−** to ground). Full brightness
+needs 5 V switched by a transistor. Never wire 5 V straight to a GPIO.
 
 No pull-up resistor: `Button(17, pull_up=True)` enables the Pi's internal one, so the pin
 idles high and reads low when pressed. `bounce_time=0.05` absorbs the contact bounce an
@@ -358,23 +369,26 @@ playback device leaves capture with nowhere to go.
 
 ## The screen
 
-A 2.2" TFT, 240x320, SPI, on a red PCB marked `QVGA 2.2 TFT SPI 240*320` — an ILI9341
-controller. **Confirm the controller before building on it**: `scripts/screen_check.py` drives it as an ILI9341,
-and a panel that stays white while the backlight is on is the symptom of a different
-controller (an ILI9325 or an ST7789 want a different driver).
+A NULLLAB 2.0" IPS TFT, 240x320, 4-wire SPI, with an **ST7789** controller. It's the same
+resolution as the 2.2" ILI9341 it replaced, so pictures, rotation and the cache are
+unchanged. Only the driver differs (`adafruit_rgb_display.st7789`). IPS means it looks
+the same from any angle, which matters when a child looks at it from above.
 
-No touch panel on this one, and the SD card socket on the back is unused — neither is
-wired and neither is wanted.
+The driver turns on the ST7789's colour inversion, which IPS panels like this one
+usually need. If the panel disagrees, colours come out as negatives (white shows black,
+red shows cyan); `scripts/screen_check.py` makes that obvious.
 
-**It is a 3.3 V part.** VCC goes to 3V3 (pin 17); 5 V will damage it.
+The listing says 3.3–5 V, so the board has a regulator. VCC still goes to 3V3 (pin 17),
+so the panel's logic runs at the same level as the Pi's pins.
 
-**The backlight is switched from GPIO12**, not tied to 3V3 — see the pinout above for
-why. Measure the backlight current before wiring it straight to the pin: a GPIO should
-source no more than about 16 mA, and if the panel wants more than that it needs a
-transistor between the pin and the backlight rather than a direct connection.
+**No reset pin.** With `reset_gpio` unset (the default), the driver starts the panel
+with the ST7789's software reset command. A board with no RES pin ties it high on the
+board, so this works the same as a hardware reset at power-up.
 
-**MISO stays unconnected.** The driver only writes, and leaving it off keeps one more
-pin free.
+**The backlight can't be switched off.** There's no BL pin, so the backlight is on
+whenever the Pi is. A blank screen is the panel filled black on a lit backlight: an IPS
+panel's black is dark, but in a dark bedroom it still glows faintly. Leave
+`backlight_gpio` unset. The setting stays for a later panel with a BL pin.
 
 Pictures only, never text (D28): young children may not read yet, so the screen
 supplements the spoken answer and is never needed to understand it. The one exception is
@@ -391,44 +405,29 @@ jellyfish half an hour after anyone asked about one.
 
 ## Assembling it
 
-The button and LED were verified on a breadboard first (`scripts/gpio_check.py`), then
-soldered. The rule
-throughout: **solder at the components, never at the Pi's header** — the header is the
-only way to take the thing apart again.
+Run `scripts/gpio_check.py` before anything goes into the enclosure. The rule
+throughout: **never solder at the Pi's header**. The header is the only way to take the
+thing apart again.
 
-**Wires.** Cut female-to-female DuPont jumpers in half and solder the cut end to the
-component. That leaves a proper female connector at the Pi end with no crimp tool
-involved, and the whole assembly unplugs. Six wires: two for the button, four for the
-LED.
+**The LED module** needs no soldering: four female-to-female DuPont jumpers go from its
+header to the Pi's. If the board has no resistors (see "The LED"), they go in the R, G
+and B wires. Cut each jumper, solder the resistor between the halves, and shrink tubing
+over the joint. Slide the tubing on before soldering, because it can't be added
+afterwards. Leave the leads long enough to reach the front panel with slack. Cardboard
+means the LED will get repositioned.
 
-**Before cutting anything**, mark the LED legs R / A / G / B with tape. The common leg is
-identified by being longest, and trimming the legs destroys that cue permanently.
+**The button's** switch terminals are quick-connect spade tabs; use 2.8 mm (0.110")
+push-on connectors on two jumpers cut in half. Push-on connectors are better than solder
+here: they survive repeated pressing, and this button will be hit thousands of times by
+a child. If soldering instead, hook the wire through the tab's hole before applying heat,
+and zip-tie the wire pair to the button body for strain relief so the joint never takes
+the pull. Leave the two lamp terminals bare.
 
-**Each LED leg**, in this order — the first step is the one that gets skipped:
-
-1. Slide the heat-shrink onto the wire. It cannot be added afterwards.
-2. Tin the LED leg and the resistor lead.
-3. Solder the resistor to the leg, a few centimetres from the LED body so the heat
-   doesn't reach the die.
-4. Solder the wire to the resistor's far end.
-5. Shrink the tubing over the joint, resistor included.
-
-Leave the leads long enough to reach the front panel with slack. Cardboard means the
-LED will get repositioned.
-
-**The button** has 2.8 mm quick-connect spade lugs. Push-on spade connectors are better
-than solder here: they survive repeated pressing, and this button will be hit thousands
-of times by a child. If soldering instead, hook the wire through the lug's hole before
-applying heat, and zip-tie the wire pair to the button body for strain relief so the
-joint never takes the pull.
-
-**Label every wire** with tape as you go. Four near-identical wires from an RGB LED are
+**Label every wire** with tape as you go. Four near-identical wires to an RGB LED are
 miserable to trace later.
 
 **The screen** needs no soldering: its header takes female DuPont jumpers directly.
-Eight wires to the Pi (VCC, GND, CS, SCK, MOSI, D/C, RESET, LED), and **MISO left off**.
-If the current measurement says the backlight needs the P-MOSFET, that goes in the LED
-wire and is the one part of the screen that does need soldering. Keep them
+Six wires to the Pi: GND, VCC, SCL, SDA, DC and CS. Keep them
 short — long SPI leads are the usual cause of a noisy picture at 24 MHz. The panel is
 mounted **landscape**, 320 wide by 240 tall (`rotation = 90`), because a photograph of a
 thing is usually wider than it is tall and a portrait panel letterboxes most lead images
@@ -478,8 +477,7 @@ after a reboot, so enabling SPI without rebooting looks identical to not enablin
 `sudo raspi-config nonint get_spi` answers 1 for off and 0 for on.
 
 Two nodes is correct: the default overlay claims both chip selects. We use CE0, and
-`spidev0.1` sits unused (we deliberately left GPIO7 free by putting the backlight on
-GPIO12 instead).
+`spidev0.1` sits unused.
 
 If they still don't appear after a reboot, check that `dtparam=spi=on` is present and
 uncommented in **`/boot/firmware/config.txt`** — on Bookworm that is the file that is
@@ -499,7 +497,7 @@ Foundation maintains and the one that still works on a Pi 5.
 ## Verifying it
 
 ```sh
-.venv/bin/python scripts/gpio_check.py --common-anode
+.venv/bin/python scripts/gpio_check.py
 ```
 
 Three passes: each colour named as it lights, then the four states, then a press-and-hold
@@ -507,43 +505,40 @@ loop printing how long the button was held.
 
 | What you see | What it means |
 |---|---|
-| LED dark throughout | wrong polarity — drop or add `--common-anode` |
+| LED dark throughout | **−** isn't on a ground pin, or the LED is common anode after all (`--common-anode`) |
 | colour names don't match what lights | swap the wires, or pass `--red/--green/--blue` with the GPIO numbers that match |
 | `BadPinFactory` / no pin factory | no backend — install `liblgpio-dev` and reinstall `lgpio` |
 | `Failed to add edge detection` or a permissions error | `sudo usermod -aG gpio $USER`, then log out and back in |
 
-Verified 2026-09-22 on a Pi 3B: defaults matched with no swaps, all three colours bright
-through 220 Ω.
+**Not yet run with the KY-016 and the 30 mm button.** The previous LED and button passed
+on 2026-09-22 with these same pins.
 
 ### The screen
 
 ```sh
-.venv/bin/python scripts/screen_check.py --backlight 12
-.venv/bin/python scripts/screen_check.py --backlight 12 --backlight-active-low
+.venv/bin/python scripts/screen_check.py
 .venv/bin/python scripts/screen_check.py --baudrate 16000000 --rotation 180
 ```
 
-Four passes with no text in any of them: solid colours named as they come up, then a
+Three passes with no text in any of them: solid colours named as they come up, then a
 border with crossed diagonals and a blue square marking the top left, then a colour
-ramp, then — with `--backlight` — the backlight blinking three times behind a white
-screen.
+ramp. (`--backlight` adds a fourth that blinks a switched backlight; this panel has none
+to switch.)
 `--image some-photo.jpg` also shows a real photo, scaled and centred the way an answer
 will be.
 
 | What you see | What it means |
 |---|---|
-| nothing at all, backlight dark | the LED pin isn't on 3V3 — check VCC and LED both reach 3V3 and GND reaches a ground pin |
-| backlight on, screen stays white | powered but not driven: D/C, RESET, MOSI or SCK wrong or loose, or SPI off (`ls /dev/spidev*` must list `spidev0.0`) |
+| nothing at all, backlight dark | no power: check VCC reaches 3V3 (pin 17) and GND a ground pin (pin 20) |
+| backlight on, screen stays white or black | powered but not driven: DC, CS, SDA or SCL wrong or loose, or SPI off (`ls /dev/spidev*` must list `spidev0.0`) |
 | `No such file or directory: '/dev/spidev0.0'` | SPI isn't enabled — `raspi-config` → Interface Options → SPI, then reboot |
 | `ImportError` on `board` / `busio` | Blinka isn't installed (see Software above) |
 | permission denied on `/dev/spidev0.0` | `sudo usermod -aG spi $USER`, then log out and back in |
-| colours named wrong (red shows blue) | an ILI9341 clone with BGR order — harmless for photos, but say so and the driver gets a flag |
+| colours named wrong (red shows blue) | the panel wants BGR order: harmless for photos, but say so and the driver gets a flag |
+| colours inverted (white shows black, red shows cyan) | the panel doesn't want the driver's colour inversion: say so and it gets turned off |
 | noise, torn lines, flicker | SPI too fast or leads too long — `--baudrate 16000000` |
 | the blue square isn't top left | the panel is mounted the other way up — find the `--rotation` that looks right and put it in `chatbox.local.toml` |
-| a white flash then nothing | RESET is floating — check GPIO27 |
-| the backlight never goes dark | wrong polarity — add `--backlight-active-low` |
-| the backlight never comes back on | GPIO12 can't supply the current — it needs the P-MOSFET switch above |
-| the backlight is on before Chatbox starts | with a MOSFET, the gate pull-up is too weak for GPIO12's idle-low default — use 10 kΩ |
+| works once, then garbage after a restart until power-cycled | the software reset isn't enough for this board; say so and it gets looked at |
 
 Once the panel itself is proved, `scripts/screen_demo.py` takes it the rest of the way —
 the real classifier, a real Wikipedia lookup and the real display, with the microphone
@@ -560,17 +555,20 @@ once `[screen] enabled = true` is in `chatbox.local.toml`. The picture appears a
 after the answer, since nothing waits for it and there is no speech to cover the gap.
 
 **Not yet run on the bench.** The pinout above is the intended wiring (PLAN.md D25
-reserved SPI0 plus GPIO25/27 for exactly this), and it is what the script and
-`chatbox.toml` default to, but nothing has been connected yet. Run this before
-`chatbox talk`, and correct this table and the pinout if the panel disagrees.
+reserved SPI0 plus GPIO25 for exactly this), and it is what the script and
+`chatbox.toml` default to, but the ST7789 panel hasn't been connected yet. Run this
+before `chatbox talk`, and correct this table and the pinout if the panel disagrees.
 
 ---
 
 ## Still to do
 
-- Measure the backlight current, wire the screen (with the P-MOSFET if the measurement
-  calls for it), run `scripts/screen_check.py --backlight 12`, then turn it on with
-  `[screen] enabled = true` and `backlight_gpio = 12` in `chatbox.local.toml`.
-- Enclosure: cardboard first, 3D printed later (PLAN.md D14). The 28.5 mm button hole and
-  a 5 mm LED hole are the only ones the front panel needs so far, plus a window for the
-  screen: the visible area is about 34 x 45 mm, on a board about 40 x 62 mm.
+- Wire the screen, run `scripts/screen_check.py`, then turn it on with
+  `[screen] enabled = true` in `chatbox.local.toml`.
+- Decide whether the always-lit backlight is acceptable in the bedroom (see "The
+  screen").
+- Wire the KY-016 and the 30 mm button, and run `scripts/gpio_check.py`.
+- Enclosure: cardboard first, 3D printed later (PLAN.md D14). The front panel needs a
+  30 mm button hole and a 5 mm hole for the LED, with the KY-016's board mounted behind it,
+  plus a window for the screen. A 2.0" 3:4 panel's visible area is about 31 x 41 mm.
+  Measure the board itself when it arrives.

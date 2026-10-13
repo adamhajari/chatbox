@@ -4,7 +4,7 @@
 Chatbox's own hardware adapter comes later; this only exercises the pins, so the
 wiring can be checked on its own. Run it on the Pi:
 
-    .venv/bin/python scripts/gpio_check.py                  # common cathode LED
+    .venv/bin/python scripts/gpio_check.py                  # common cathode (the KY-016)
     .venv/bin/python scripts/gpio_check.py --common-anode
     .venv/bin/python scripts/gpio_check.py --button 17 --red 22 --green 23 --blue 24
 

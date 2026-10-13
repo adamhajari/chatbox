@@ -59,7 +59,7 @@ class ScreenSettings:
     """The picture screen (PLAN.md D28). Absent or `enabled = false` means no screen."""
 
     dc_gpio: int = 25            # data/command pin
-    reset_gpio: int = 27
+    reset_gpio: int | None = None  # None = no RES pin; the driver resets over SPI
     cs: int = 0                  # SPI0 chip select: 0 = CE0 (GPIO8), 1 = CE1 (GPIO7)
     baudrate: int = 24_000_000
     rotation: int = 90   # 90/270 = landscape (the default), 0/180 = portrait
@@ -110,7 +110,7 @@ def _screen(data: dict, base: Path) -> ScreenSettings | None:
     cache = sc.get("cache_dir")
     return ScreenSettings(
         dc_gpio=int(sc.get("dc_gpio", 25)),
-        reset_gpio=int(sc.get("reset_gpio", 27)),
+        reset_gpio=None if sc.get("reset_gpio") is None else int(sc["reset_gpio"]),
         cs=int(sc.get("cs", 0)),
         baudrate=int(sc.get("baudrate", 24_000_000)),
         rotation=int(sc.get("rotation", 90)),
