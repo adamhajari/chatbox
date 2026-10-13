@@ -24,8 +24,8 @@ For getting the software onto the Pi in the first place, see
 | Picture screen | [NULLLAB 2.0" 240×320 IPS TFT](https://www.amazon.com/dp/B0GVF8R5ZL), ST7789 controller | GPIO (SPI) |
 
 Wiring is female-to-female DuPont jumpers: straight onto the header pins of the LED
-module and the screen, and 2.8 mm push-on spade connectors for the button (see
-"Assembling it").
+module and the screen, and soldered (or alligator-clipped) to the button's terminals
+(see "Assembling it").
 
 ---
 
@@ -42,8 +42,8 @@ Image: [Raspberry Pi documentation](https://www.raspberrypi.com/documentation/co
 
 | Signal | GPIO | Physical pin | Goes to |
 |---|---|---|---|
-| Button | GPIO17 | 11 | either switch terminal |
-| Button return | — | 9 (GND) | the other switch terminal |
+| Button | GPIO17 | 11 | button terminal marked **+** |
+| Button return | — | 9 (GND) | button terminal marked **−** |
 | LED red | GPIO22 | 15 | module **R** |
 | LED green | GPIO23 | 16 | module **G** |
 | LED blue | GPIO24 | 18 | module **B** |
@@ -60,8 +60,8 @@ Image: [Raspberry Pi documentation](https://www.raspberrypi.com/documentation/co
 | Screen SDA (MOSI) | GPIO10 | 19 | hardware SPI0 |
 | Screen DC | GPIO25 | 22 | |
 
-The button's two lamp terminals are left unconnected: the LED
-module is the status light (see "The button").
+The button's other two terminals (its lamp) are left unconnected: the LED module is the
+status light (see "The button").
 
 ST7789 modules label their pins in I2C style: **SCL** is the SPI clock and **SDA** is
 MOSI. It's still SPI. There's no MISO pin, and nothing is read back from the panel.
@@ -124,16 +124,21 @@ the board's resistors.
 
 A 30 mm translucent arcade button with a built-in lamp, Adafruit's design, sold by
 PiShop. It needs a 30 mm hole and screws into panels up to about 20 mm thick. It has four
-terminals on the back. The two **bare copper tabs** going into the grey micro-switch
-body are the switch. The two tabs sitting in **small grey holders** on the other side
-are the lamp. The switch tabs are interchangeable: one to GPIO17, the other to ground.
-Picking the lamp pair by mistake is harmless: the button just never registers a press.
+terminals on the back. **The switch is the two terminals coming out of the small grey
+box, marked + and −**:
 
-**The lamp isn't used**, and its terminals stay unconnected; the LED
-module above is the status light. Should it be wanted later: the lamp is two LEDs with
-their own resistor, rated 5 V at 10 mA. On 3.3 V it still lights, dimly, at about 2 mA,
-which a GPIO can supply directly (**+** to a free GPIO, **−** to ground). Full brightness
-needs 5 V switched by a transistor. Never wire 5 V straight to a GPIO.
+- **+** goes to **GPIO17** (pin 11).
+- **−** goes to **ground** (pin 9).
+
+The other two terminals, bare copper tabs with no markings, are the lamp. Picking those
+by mistake is harmless: the button just never registers a press. This was checked on the
+bench on 2026-10-13. Going by the photos alone, it looks the other way round.
+
+**The lamp isn't used**, and its terminals stay unconnected; the LED module above is the
+status light. Should it be wanted later: the lamp is two LEDs with their own resistor,
+rated 5 V at 10 mA. On 3.3 V it still lights, dimly, at about 2 mA, which a GPIO can
+supply directly. Full brightness needs 5 V switched by a transistor. Never wire 5 V
+straight to a GPIO.
 
 No pull-up resistor: `Button(17, pull_up=True)` enables the Pi's internal one, so the pin
 idles high and reads low when pressed. `bounce_time=0.05` absorbs the contact bounce an
@@ -459,12 +464,19 @@ over the joint. Slide the tubing on before soldering, because it can't be added
 afterwards. Leave the leads long enough to reach the front panel with slack. Cardboard
 means the LED will get repositioned.
 
-**The button's** switch terminals are quick-connect spade tabs; use 2.8 mm (0.110")
-push-on connectors on two jumpers cut in half. Push-on connectors are better than solder
-here: they survive repeated pressing, and this button will be hit thousands of times by
-a child. If soldering instead, hook the wire through the tab's hole before applying heat,
-and zip-tie the wire pair to the button body for strain relief so the joint never takes
-the pull. Leave the two lamp terminals bare.
+**The button** takes two wires, on the terminals marked **+** and **−** (see "The
+button"). Leave the other two bare. Either:
+
+- **Solder:** cut two female-to-female DuPont jumpers in half and solder each cut end to
+  a terminal: **+** to the wire for pin 11, **−** to the wire for pin 9. Hook the wire
+  through the terminal's hole before applying heat. Zip-tie the pair to the button body
+  for strain relief, so the joint never takes the pull: this button will be hit
+  thousands of times by a child.
+- **No soldering:** use two alligator-clip leads with a female DuPont connector on the
+  other end. Clip one to **+** and plug it onto pin 11, and the other to **−** and pin 9.
+  Make sure the two clips can't touch each other, or the button reads as held down. Good
+  for the bench and for a cardboard enclosure; solder for anything permanent, since a
+  clip can work loose.
 
 **Label every wire** with tape as you go. Four near-identical wires to an RGB LED are
 miserable to trace later.
