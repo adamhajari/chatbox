@@ -11,6 +11,8 @@ optional picture screen ([docs/hardware.md](docs/hardware.md)). It also runs on 
 where the spacebar is the button, and as a typed chat. Answers come from Claude; speech
 goes through Google Cloud.
 
+See a demo [here](https://www.youtube.com/watch?v=p4ep5TJxXrA).
+
 ## Setup
 
 Requires Python 3.11+.
