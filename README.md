@@ -177,7 +177,7 @@ through (Chatbox says what the animal was).
     answer being asked for. With no games left, it's turned away with no model call, as
     before. The schedule and the pause apply to games as usual.
 
-## The reading game
+## The reading game 
 
 "Let's play the reading game" puts a word on the screen, and the kid reads it out loud.
 Chatbox cheers a right answer, gives a small hint after a wrong one (its first sound, or
